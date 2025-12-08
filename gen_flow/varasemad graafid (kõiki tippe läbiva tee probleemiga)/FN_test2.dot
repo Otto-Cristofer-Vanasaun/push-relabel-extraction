@@ -1,0 +1,15 @@
+digraph Flow {
+  rankdir=LR;
+  node [shape=circle];
+  0 [shape=doublecircle, style=filled, fillcolor=lightgray, label="0 (s)"];
+  4 [shape=doublecircle, style=filled, fillcolor=lightgray, label="4 (t)"];
+  1;
+  2;
+  3;
+  labelloc="t"; label="Random flow | n=5, m=5, s=0, t=4, cap∈[1,20], seed=10";
+  0 -> 2 [label="6"];
+  1 -> 3 [label="2"];
+  2 -> 1 [label="17"];
+  2 -> 3 [label="16"];
+  3 -> 4 [label="11"];
+}

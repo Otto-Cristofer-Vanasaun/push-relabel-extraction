@@ -1,0 +1,9 @@
+(executable
+ (public_name push-relabel)
+ (name main)
+ (libraries push_relabel zarith))
+
+(executable
+ (public_name test)
+ (name test)
+ (libraries zarith))

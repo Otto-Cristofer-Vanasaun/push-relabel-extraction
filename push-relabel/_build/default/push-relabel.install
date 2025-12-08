@@ -1,0 +1,9 @@
+lib: [
+  "_build/install/default/lib/push-relabel/META"
+  "_build/install/default/lib/push-relabel/dune-package"
+  "_build/install/default/lib/push-relabel/opam"
+]
+bin: [
+  "_build/install/default/bin/push-relabel"
+  "_build/install/default/bin/test"
+]
