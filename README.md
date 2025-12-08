@@ -1,8 +1,23 @@
+#### Nimekiri tehtud optimeeringutest
+* Teegist ExtrOcamlBasic
+  - Tõeväärtused
+  - `option`-tüüp (`Some, None`)
+  - `unit`-tüüp ("`()`")
+  - listid
+  - `prod`-tüüp (`( * )`)
+* Teegist ExtrOcamlZInt
+  - `positive`-arvutüüp OCamli täisarvuks `int`
+  - `Z`-arvutüüp OCamli täisarvuks `int`
+  - `N`-arvutüüp OCamli täisarvuks `int` (ei kasutata)
+* Teegist ExtrOcamlNatInt
+  - naturaalarvud OCamli täisarvudeks `int`
+`Q`-arvutüüp OCamli täisarvupaariks `int * int`
+
 #### Failide kirjeldus
 Põhiline fail on PR.v. Seal on algne Aksel Õimi tõestus, viimased ~20 rida on ekstraheerimise kohta. Viimasel real on võrgu FN2 ekstraheerimise käsk. \
 Kaustas push-relabel on projekt, mille bin kaustas main.ml failis on OCaml-i kood, mille saab PR.v ekstraheerimisel. \
 Lisaks sellele on faili lõpus ka ajamõõtmise ja koodi jooksutamise funktsioonid. Faili alguses on rida, milles ignoreeritakse mõningaid OCaml-i hoiatusi. \
-Kaustas gen_flow on Pythoni skript graafide genereerimiseks ja hulk graafe, mida testimisel on kasutatud. Selles kaustas on ka varasemate graafide kaust, \
+Kaustas gen_flow on Pythoni skript graafide genereerimiseks ja hulk graafe, mida testimisel on kasutatud. Selles kaustas on ka varasemate graafide kaust,
 kust võib leida need graafid, mille puhul ei ole _backbone_ tee implementatsiooni eemaldatud.
 
 #### OCamli koodi jooksutamine
