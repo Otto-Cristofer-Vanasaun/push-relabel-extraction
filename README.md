@@ -21,7 +21,7 @@ Kaustas gen_flow on Pythoni skript graafide genereerimiseks ja hulk graafe, mida
 kust võib leida need graafid, mille puhul ei ole _backbone_ tee implementatsiooni eemaldatud.
 
 #### OCamli koodi jooksutamine
-Kõigepealt tuleb OCaml keskkond käivitada käsuga `ocaml`
-Põhikäsk on konsoolis `#use "main.ml";;`
-Kui see ei tööta, võib proovida `#use "topfind";;` ja `#require "zarith";;` käske ning seejärel uuesti `#use "main.ml";;`
+Kõigepealt tuleb OCaml keskkond käivitada käsuga `ocaml` \
+Põhikäsk on konsoolis `#use "main.ml";;` \
+Kui see ei tööta, võib proovida `#use "topfind";;` ja `#require "zarith";;` käske ning seejärel uuesti `#use "main.ml";;` \
 Kui ikka ei tööta, siis ...
