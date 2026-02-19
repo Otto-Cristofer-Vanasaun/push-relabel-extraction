@@ -1,1 +1,1 @@
-bin/main.ml: Printf Stdlib Sys
+bin/main.ml: Hashtbl Int Obj Printf Q Set Stdlib Sys

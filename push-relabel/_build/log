@@ -2,7 +2,7 @@
 # OCAMLPARAM: unset
 # Shared cache: enabled-except-user-rules
 # Shared cache location: /home/ocvanasaun/.cache/dune/db
-# Workspace root: /home/ocvanasaun/rocq/push-relabel
+# Workspace root: /home/ocvanasaun/rocq/push-relabel-extraction/push-relabel
 # Auto-detected concurrency: 12
 # Dune context:
 #  { name = "default"
@@ -13,4 +13,4 @@
 #  ; build_dir = In_build_dir "default"
 #  ; instrument_with = []
 #  }
-$ /home/ocvanasaun/.opam/CP.2025.01.0~8.20~2025.01/bin/ocamlc.opt -config > /tmp/dune_3ce8c6_output
+$ /home/ocvanasaun/.opam/CP.2025.01.0~8.20~2025.01/bin/ocamlc.opt -config > /tmp/dune_a46214_output
