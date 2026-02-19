@@ -506,34 +506,44 @@ module ESet =
 
 module VSet =
  struct
-  type t = VerticeSet'.t
+  type t = Coq_Nat.coq_V list
 
   (** val empty : t **)
 
-  let empty = VerticeSet'.empty
+  let empty =
+    []
 
   (** val remove :
       Coq_Nat.coq_V -> Coq_Nat.coq_V list -> Coq_Nat.coq_V list **)
 
-  let rec remove = fun v xs -> VerticeSet'.remove v xs
+  let rec remove v = function
+  | [] -> []
+  | v' :: s0 -> if Coq_Nat.eqb v v' then remove v s0 else v' :: (remove v s0)
 
   (** val add : Coq_Nat.coq_V -> Coq_Nat.coq_V list -> Coq_Nat.coq_V list **)
 
-  let add = fun v xs -> VerticeSet'.add v xs
+  let add v s =
+    v :: (remove v s)
 
   (** val mem : Coq_Nat.coq_V -> Coq_Nat.coq_V list -> bool **)
 
-  let rec mem = fun v xs -> VerticeSet'.mem v xs
+  let rec mem v = function
+  | [] -> false
+  | v' :: s0 -> if Coq_Nat.eqb v v' then true else mem v s0
 
   (** val choice :
       Coq_Nat.coq_V list -> (Coq_Nat.coq_V * Coq_Nat.coq_V list) option **)
 
-  let choice = fun xs -> VerticeSet'.choose xs
+  let choice = function
+  | [] -> None
+  | v :: s0 -> Some (v, s0)
 
   (** val filter :
       (Coq_Nat.coq_V -> bool) -> Coq_Nat.coq_V list -> Coq_Nat.coq_V list **)
 
-  let rec filter = fun f xs -> VerticeSet'.filter f xs
+  let rec filter p = function
+  | [] -> []
+  | v :: s -> if p v then v :: (filter p s) else filter p s
 
   (** val in_filter : __ **)
 
@@ -548,14 +558,15 @@ module VSet =
   (** val fold_left :
       ('a1 -> Coq_Nat.coq_V -> 'a1) -> Coq_Nat.coq_V list -> 'a1 -> 'a1 **)
 
-  let fold_left = fun f xs acc -> VerticeSet'.fold f xs acc
+  let fold_left =
+    fold_left
 
   type coq_IsSet = __
  end
 
 module PR =
- functor (T__6:T) ->
- functor (EMap__7:sig
+ functor (T__87:T) ->
+ functor (EMap__88:sig
   type 'e t
 
   val empty : 'a1 -> 'a1 t
@@ -566,7 +577,7 @@ module PR =
 
   val update : 'a1 -> Edge.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
  end) ->
- functor (VMap__8:sig
+ functor (VMap__89:sig
   type 'e t
 
   val empty : 'a1 -> 'a1 t
@@ -577,7 +588,7 @@ module PR =
 
   val update : 'a1 -> Coq_Nat.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
  end) ->
- functor (ESet__9:sig
+ functor (ESet__90:sig
   type t
 
   val empty : t
@@ -594,7 +605,7 @@ module PR =
 
   val fold_left : ('a1 -> Edge.coq_V -> 'a1) -> Edge.coq_V list -> 'a1 -> 'a1
  end) ->
- functor (VSet__10:sig
+ functor (VSet__91:sig
   type t
 
   val empty : t
@@ -668,18 +679,18 @@ module PR =
     fold_right qplus (0, 1)
 
   (** val excess :
-      coq_FlowNet -> coq_R EMap__7.t -> Coq_Nat.coq_V -> coq_R **)
+      coq_FlowNet -> coq_R EMap__88.t -> Coq_Nat.coq_V -> coq_R **)
 
   let excess fn f u =
     let (p, _) = fn in
     let (p0, _) = p in
     let (g, _) = p0 in
     let (vs, _) = g in
-    qminus (coq_QSumList (map (fun v -> EMap__7.find (0, 1) f (v, u)) vs))
-      (coq_QSumList (map (fun v -> EMap__7.find (0, 1) f (u, v)) vs))
+    qminus (coq_QSumList (map (fun v -> EMap__88.find (0, 1) f (v, u)) vs))
+      (coq_QSumList (map (fun v -> EMap__88.find (0, 1) f (u, v)) vs))
 
   (** val res_cap :
-      coq_FlowNet -> coq_R EMap__7.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V ->
+      coq_FlowNet -> coq_R EMap__88.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V ->
       coq_R **)
 
   let res_cap fn f u v =
@@ -687,21 +698,21 @@ module PR =
     let (p0, _) = p in
     let (g, c) = p0 in
     let (_, es) = g in
-    if ESet__9.mem (u, v) es
-    then qminus (c u v) (EMap__7.find (0, 1) f (u, v))
-    else EMap__7.find (0, 1) f (v, u)
+    if ESet__90.mem (u, v) es
+    then qminus (c u v) (EMap__88.find (0, 1) f (u, v))
+    else EMap__88.find (0, 1) f (v, u)
 
-  (** val coq_E : coq_FlowNet -> coq_R EMap__7.t -> Edge.coq_V list **)
+  (** val coq_E : coq_FlowNet -> coq_R EMap__88.t -> Edge.coq_V list **)
 
   let coq_E fn f =
     let (p, _) = fn in
     let (p0, _) = p in
     let (g, c) = p0 in
     let (_, es) = g in
-    ESet__9.filter (fun pat ->
-      let (u, v) = pat in coq_QLt (EMap__7.find (0, 1) f (u, v)) (c u v)) es
+    ESet__90.filter (fun pat ->
+      let (u, v) = pat in coq_QLt (EMap__88.find (0, 1) f (u, v)) (c u v)) es
 
-  (** val res_net : coq_FlowNet -> coq_R EMap__7.t -> coq_FlowNet **)
+  (** val res_net : coq_FlowNet -> coq_R EMap__88.t -> coq_FlowNet **)
 
   let res_net fn f =
     let (p, t0) = fn in
@@ -712,7 +723,7 @@ module PR =
   (** val push :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (Coq_Nat.coq_V ->
       Coq_Nat.coq_V -> coq_R)) * Coq_Nat.coq_V) * Coq_Nat.coq_V) -> coq_R
-      EMap__7.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V -> coq_R EMap__7.t **)
+      EMap__88.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V -> coq_R EMap__88.t **)
 
   let push fn f u v =
     let (y, _) = fn in
@@ -720,9 +731,9 @@ module PR =
     let (y1, _) = y0 in
     let (_, es) = y1 in
     let delta = qmin (excess fn f u) (res_cap fn f u v) in
-    if ESet__9.mem (u, v) es
-    then EMap__7.update (0, 1) (u, v) (fun x -> qplus x delta) f
-    else EMap__7.update (0, 1) (v, u) (fun x -> qminus x delta) f
+    if ESet__90.mem (u, v) es
+    then EMap__88.update (0, 1) (u, v) (fun x -> qplus x delta) f
+    else EMap__88.update (0, 1) (v, u) (fun x -> qminus x delta) f
 
   (** val option_min : int option -> int -> int option **)
 
@@ -732,16 +743,16 @@ module PR =
     | None -> Some y
 
   (** val relabel_find :
-      coq_FlowNet -> coq_R EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V ->
+      coq_FlowNet -> coq_R EMap__88.t -> int VMap__89.t -> Coq_Nat.coq_V ->
       Coq_Nat.coq_V list -> Coq_Nat.coq_V option **)
 
   let relabel_find fn f l u vs =
-    let fvs = VSet__10.filter (fun v -> coq_QLt (0, 1) (res_cap fn f u v)) vs
+    let fvs = VSet__91.filter (fun v -> coq_QLt (0, 1) (res_cap fn f u v)) vs
     in
-    VSet__10.fold_left (fun r v ->
+    VSet__91.fold_left (fun r v ->
       match r with
       | Some r0 ->
-        if (<=) (VMap__8.find 0 l r0) (VMap__8.find 0 l v)
+        if (<=) (VMap__89.find 0 l r0) (VMap__89.find 0 l v)
         then Some r0
         else Some v
       | None -> Some v) fvs None
@@ -749,7 +760,7 @@ module PR =
   (** val relabel :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (Coq_Nat.coq_V ->
       Coq_Nat.coq_V -> coq_R)) * Coq_Nat.coq_V) * Coq_Nat.coq_V) -> coq_R
-      EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V -> int VMap__8.t option **)
+      EMap__88.t -> int VMap__89.t -> Coq_Nat.coq_V -> int VMap__89.t option **)
 
   let relabel fn f l u =
     let (y, _) = fn in
@@ -759,29 +770,29 @@ module PR =
     (match relabel_find fn f l u vs with
      | Some n ->
        Some
-         (VMap__8.replace 0 u (add (Stdlib.Int.succ 0) (VMap__8.find 0 l n))
-           l)
+         (VMap__89.replace 0 u
+           (add (Stdlib.Int.succ 0) (VMap__89.find 0 l n)) l)
      | None -> None)
 
   (** val find_push_node :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (Coq_Nat.coq_V ->
       Coq_Nat.coq_V -> coq_R)) * Coq_Nat.coq_V) * Coq_Nat.coq_V) -> coq_R
-      EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V list ->
+      EMap__88.t -> int VMap__89.t -> Coq_Nat.coq_V -> Coq_Nat.coq_V list ->
       Coq_Nat.coq_V option **)
 
   let rec find_push_node fn f l u = function
   | [] -> None
   | v :: vs'0 ->
     if (&&)
-         ((=) (VMap__8.find 0 l u)
-           (add (Stdlib.Int.succ 0) (VMap__8.find 0 l v)))
+         ((=) (VMap__89.find 0 l u)
+           (add (Stdlib.Int.succ 0) (VMap__89.find 0 l v)))
          (coq_QLt (0, 1) (res_cap fn f u v))
     then Some v
     else find_push_node fn f l u vs'0
 
   (** val has_excess_not_sink :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (Coq_Nat.coq_V ->
-      Coq_Nat.coq_V -> coq_R)) * int) * int) -> coq_R EMap__7.t ->
+      Coq_Nat.coq_V -> coq_R)) * int) * int) -> coq_R EMap__88.t ->
       Coq_Nat.coq_V -> bool **)
 
   let has_excess_not_sink fn f v =
@@ -792,19 +803,20 @@ module PR =
     else coq_QLt (0, 1) (excess fn f v)
 
   type coq_Tr =
-  | Init of (int * int) * (int * int) EMap__7.t * int VMap__8.t
+  | Init of (int * int) * (int * int) EMap__88.t * int VMap__89.t
      * Coq_Nat.coq_V list
   | Push of (int * int) * Coq_Nat.coq_V * Coq_Nat.coq_V
-     * (int * int) EMap__7.t * Coq_Nat.coq_V list
-  | Relabel of Coq_Nat.coq_V * int * int VMap__8.t
+     * (int * int) EMap__88.t * Coq_Nat.coq_V list
+  | Relabel of Coq_Nat.coq_V * int * int VMap__89.t
   | OutOfGas
   | RelabelFailed
 
   (** val coq_Tr_rect :
-      ((int * int) -> (int * int) EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V
-      list -> 'a1) -> ((int * int) -> Coq_Nat.coq_V -> Coq_Nat.coq_V ->
-      (int * int) EMap__7.t -> Coq_Nat.coq_V list -> 'a1) -> (Coq_Nat.coq_V
-      -> int -> int VMap__8.t -> 'a1) -> 'a1 -> 'a1 -> coq_Tr -> 'a1 **)
+      ((int * int) -> (int * int) EMap__88.t -> int VMap__89.t ->
+      Coq_Nat.coq_V list -> 'a1) -> ((int * int) -> Coq_Nat.coq_V ->
+      Coq_Nat.coq_V -> (int * int) EMap__88.t -> Coq_Nat.coq_V list -> 'a1)
+      -> (Coq_Nat.coq_V -> int -> int VMap__89.t -> 'a1) -> 'a1 -> 'a1 ->
+      coq_Tr -> 'a1 **)
 
   let coq_Tr_rect f f0 f1 f2 f3 = function
   | Init (d, t1, t2, l) -> f d t1 t2 l
@@ -814,10 +826,11 @@ module PR =
   | RelabelFailed -> f3
 
   (** val coq_Tr_rec :
-      ((int * int) -> (int * int) EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V
-      list -> 'a1) -> ((int * int) -> Coq_Nat.coq_V -> Coq_Nat.coq_V ->
-      (int * int) EMap__7.t -> Coq_Nat.coq_V list -> 'a1) -> (Coq_Nat.coq_V
-      -> int -> int VMap__8.t -> 'a1) -> 'a1 -> 'a1 -> coq_Tr -> 'a1 **)
+      ((int * int) -> (int * int) EMap__88.t -> int VMap__89.t ->
+      Coq_Nat.coq_V list -> 'a1) -> ((int * int) -> Coq_Nat.coq_V ->
+      Coq_Nat.coq_V -> (int * int) EMap__88.t -> Coq_Nat.coq_V list -> 'a1)
+      -> (Coq_Nat.coq_V -> int -> int VMap__89.t -> 'a1) -> 'a1 -> 'a1 ->
+      coq_Tr -> 'a1 **)
 
   let coq_Tr_rec f f0 f1 f2 f3 = function
   | Init (d, t1, t2, l) -> f d t1 t2 l
@@ -829,8 +842,8 @@ module PR =
   (** val gpr_helper_trace :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (Coq_Nat.coq_V ->
       Coq_Nat.coq_V -> coq_R)) * Coq_Nat.coq_V) * Coq_Nat.coq_V) -> coq_R
-      EMap__7.t -> int VMap__8.t -> Coq_Nat.coq_V list -> int -> coq_Tr list
-      -> ((int * int) EMap__7.t * int VMap__8.t) option * coq_Tr list **)
+      EMap__88.t -> int VMap__89.t -> Coq_Nat.coq_V list -> int -> coq_Tr
+      list -> ((int * int) EMap__88.t * int VMap__89.t) option * coq_Tr list **)
 
   let rec gpr_helper_trace fn f l ac g tr =
     let (y, _) = fn in
@@ -840,7 +853,7 @@ module PR =
     ((fun fO fS n -> if n=0 then fO () else fS (n-1))
        (fun _ -> (None, (OutOfGas :: tr)))
        (fun g' ->
-       match VSet__10.choice ac with
+       match VSet__91.choice ac with
        | Some p ->
          let (u, ac') = p in
          (match find_push_node fn f l u vs with
@@ -848,25 +861,25 @@ module PR =
             let f' = push fn f u v in
             let ac'0 = if coq_QLt (0, 1) (excess fn f' u) then ac else ac' in
             if has_excess_not_sink fn f' v
-            then let ac'' = VSet__10.add v ac'0 in
+            then let ac'' = VSet__91.add v ac'0 in
                  gpr_helper_trace fn f' l ac'' g' ((Push ((0, 1), u, v, f',
                    ac'')) :: tr)
-            else let ac'' = VSet__10.remove v ac'0 in
+            else let ac'' = VSet__91.remove v ac'0 in
                  gpr_helper_trace fn f' l ac'' g' ((Push ((0, 1), u, v, f',
                    ac'0)) :: tr)
           | None ->
             (match relabel fn f l u with
              | Some l' ->
                gpr_helper_trace fn f l' ac g' ((Relabel (u,
-                 (VMap__8.find 0 l' u), l')) :: tr)
+                 (VMap__89.find 0 l' u), l')) :: tr)
              | None -> (None, (RelabelFailed :: tr))))
        | None -> ((Some (f, l)), tr))
        g)
 
   (** val initial_push :
       ((((Coq_Nat.coq_V list * Edge.coq_V list) * (int -> Coq_Nat.coq_V ->
-      coq_R)) * int) * int) -> coq_R EMap__7.t -> Coq_Nat.coq_V list ->
-      (int * Coq_Nat.coq_V) list -> coq_R EMap__7.t * Coq_Nat.coq_V list **)
+      coq_R)) * int) * int) -> coq_R EMap__88.t -> Coq_Nat.coq_V list ->
+      (int * Coq_Nat.coq_V) list -> coq_R EMap__88.t * Coq_Nat.coq_V list **)
 
   let rec initial_push fn f ac es =
     let (y, _) = fn in
@@ -877,25 +890,25 @@ module PR =
      | y1 :: es0 ->
        let (u, v) = y1 in
        if Coq_Nat.eqb s u
-       then let f' = EMap__7.replace (0, 1) (u, v) (c u v) f in
+       then let f' = EMap__88.replace (0, 1) (u, v) (c u v) f in
             let ac0 =
-              if has_excess_not_sink fn f' v then VSet__10.add v ac else ac
+              if has_excess_not_sink fn f' v then VSet__91.add v ac else ac
             in
             initial_push fn f' ac0 es0
        else initial_push fn f ac es0)
 
   (** val gpr_trace :
-      coq_FlowNet -> ((int * int) EMap__7.t * int VMap__8.t) option * coq_Tr
-      list **)
+      coq_FlowNet -> ((int * int) EMap__88.t * int VMap__89.t)
+      option * coq_Tr list **)
 
   let gpr_trace fn = match fn with
   | (p, _) ->
     let (p0, s) = p in
     let (g, _) = p0 in
     let (vs, es) = g in
-    let labels = VMap__8.replace 0 s (length vs) (VMap__8.empty 0) in
+    let labels = VMap__89.replace 0 s (length vs) (VMap__89.empty 0) in
     let bound = mul (mul (length es) (length vs)) (length vs) in
-    let (f, active) = initial_push fn (EMap__7.empty (0, 1)) [] es in
+    let (f, active) = initial_push fn (EMap__88.empty (0, 1)) [] es in
     gpr_helper_trace fn f labels active bound ((Init ((0, 1), f, labels,
       active)) :: [])
  end
