@@ -16,10 +16,11 @@
   - `add` to OCaml `(+)`
   - `mult` to OCaml `(*)`
 
-`Q` to OCaml `(int * int)`
-`length` to OCaml `List.length`
-`map` to OCaml `List.map`
-`VMap` and `EMap` to OCaml `Hashtbl` (along with all of the functions defined for `VMap` and `EMap`).
+* Other changes
+- `Q` to OCaml `(int * int)`
+- `length` to OCaml `List.length`
+- `map` to OCaml `List.map`
+- `VMap` and `EMap` to OCaml `Hashtbl` (along with all of the functions defined for `VMap` and `EMap`).
 
 #### Description of files
 * Rocq \
