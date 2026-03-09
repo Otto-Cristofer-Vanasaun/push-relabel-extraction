@@ -6,7 +6,6 @@ Require Import Coq.QArith.Qminmax.
 Require Import Coq.QArith.QOrderedType.
 Require Import Lia. (*tactic: lia*)
 Require Import Lqa. (*tactic: lra*)
-Require Extraction.
 
 Ltac destruct_guard_in H :=
     generalize H; clear H;
@@ -62,7 +61,7 @@ Module Map (T:T) <: MapSpec (T).
         | nil => nil
         | ((u,y)::xs) => 
             if eqb v u then 
-                @remove e d v xs
+                @remove e d v xs 
             else 
                 (u,y)::(@remove e d v xs)
         end.
@@ -78,7 +77,7 @@ Module Map (T:T) <: MapSpec (T).
                 (u,y)::(@replace e d v x xs)
         end.
 
-    (* Uuendab tipust väljuvaid servasid, kui antud tipp leidub järjendis xs *)
+    (* Uuendab tipust väljuvaid servasid, kui antud tipp leidub xs-is *)
     Fixpoint update {e:Type} {d} (v:V) (f:e->e) (xs:@t e d) := 
         match xs with
         | nil => (v,f d)::nil
@@ -88,7 +87,6 @@ Module Map (T:T) <: MapSpec (T).
             else 
                 (u,y)::(@update e d v f xs)
         end.
-
     
     Fixpoint find {e:Type} {d} (xs:@t e d) (v:V) := 
         match xs with
@@ -102,7 +100,7 @@ Module Map (T:T) <: MapSpec (T).
 
     Lemma FindRemoveEq {e d} {f:e->e} (xs:@t e d) u  :  
         @find e d (remove u xs) u = d.
-Proof. 
+    Proof.
         intros. induction xs.
         + simpl. reflexivity.
         + simpl. destruct a.
@@ -174,7 +172,6 @@ Proof.
         * rewrite -> FindRemoveNeq; auto. 
         - simpl. destruct (equal u v0); auto.
         Qed.
-    
         
 End Map.
 
@@ -199,14 +196,12 @@ Module MkSet (T:T) <: SetSpec (T).
         | nil => nil
         | v' :: s => if T.eqb v v' then remove v s else v' :: remove v s
         end.
-    Definition add v s := v :: (remove v s).
-    (* Definition add v s := app (remove v s) (v::nil). *)
+    Definition add v s := v :: remove v s.
     Fixpoint mem v s :=
         match s with 
         | nil => false
         | v' :: s => if T.eqb v v' then true else mem v s
         end.
-    
 
     Notation "v ∈ s" := (mem v s) (at level 12). 
 
@@ -320,7 +315,7 @@ Module MkSet (T:T) <: SetSpec (T).
 
 
     Lemma RemoveOtherInFalse a b xs: a ∈ xs = false -> a ∈ remove b xs = false.
-Proof. 
+    Proof.
         intros. induction xs; auto.
         simpl. destruct (equal b a0).
         + apply IHxs. subst. inversion H. destruct (equal a a0); auto.
@@ -329,10 +324,10 @@ Proof.
         - subst. simpl in *. rewrite eqb_refl in H. inversion H.
         - apply IHxs. simpl in *. destruct (equal a a0); auto.
         subst. inversion H.
-        Qed. 
+    Qed. 
     
     Lemma RemoveSameInFalse a xs: a ∈ remove a xs = false.
-Proof. 
+    Proof.
         intros. induction xs; auto.
         simpl. destruct (equal a a0); auto.
         simpl. destruct (equal a a0); auto.
@@ -340,7 +335,7 @@ Proof.
         Qed.   
 
     Lemma RemoveIsSet a xs: IsSet xs -> IsSet (remove a xs).
-Proof.  
+    Proof.
         intros. induction xs; auto.
         simpl. destruct (equal a a0). 
         + subst. apply IHxs. inversion H. subst. apply H3.
@@ -351,7 +346,7 @@ Proof.
          Qed.
 
     Lemma AddIsSet a xs: IsSet xs -> IsSet (add a xs).
-        Proof. 
+    Proof. 
         intros. induction xs. 
         + unfold add. simpl. apply ConsIsSet; auto.
         + unfold add. simpl. destruct (equal a a0).
@@ -396,7 +391,7 @@ Proof.
     Lemma choiceSome s: forall a s', 
     IsSet s ->
     choice s = Some (a,s') -> a ∈ s=true /\ s'=remove a s /\ IsSet s'.
-    Proof. 
+    Proof.
         induction s; intros. 
         + inversion H0.
         + split.
@@ -446,7 +441,7 @@ Module PR (T:T).
     Notation "m '[' v ']'" := (EMap.find m v) (at level 12):EMap. 
     Open Scope EMap.
 
-    Module VSet := MkSet(T). 
+    Module VSet := MkSet (T).
     Notation "v '∈v' s" := (VSet.mem v s) (at level 12). 
 
     Module ESet := MkSet (Edge).
@@ -710,6 +705,7 @@ Module PR (T:T).
         let bound := (length es * length vs * length vs)%nat in
         let '(f, active) := initial_push fn (EMap.empty 0) nil es in
         gpr_helper_trace fn f labels active bound (Init f labels active :: nil).
+
     Local Close Scope NMap.
     
     (* Iga serva korral ei ole voog suurem kui läbilaskevõime *)
@@ -1071,7 +1067,7 @@ Module PR (T:T).
                   (EMap.update (u, v) (fun x0 => x0 + d) f) 
                   (v0, v)) vs) == 
         QSumList (map (fun v0 => @EMap.find Q 0 f (v0, v)) vs) + d.
-        Proof.
+    Proof. 
         induction vs; intros.
         + simpl. inversion H0.
         + simpl. destruct (equal u a).
@@ -1094,7 +1090,7 @@ Module PR (T:T).
                   (EMap.update (u, v) (fun x0 => x0 + d) f) 
                   (u,v0)) vs) == 
         QSumList (map (fun v0 => @EMap.find Q 0 f (u,v0)) vs) + d.
-        Proof.
+    Proof.
         induction vs; intros.
         + simpl. inversion H0.
         + simpl. destruct (equal v a).
@@ -1413,7 +1409,7 @@ Module PR (T:T).
         FlowConservationConstraint fn f' /\
         (* Sisendi ja väljundi kõrgus on funktsiooni gpr_helper_trace lõpus sama, mis oli alguses *)
         l[s] = l'[s] /\ l[t]=l'[t].
-    Proof.
+    Proof.        
         destruct fn as [[[[vs es] c] s] t]. induction g;
         intros f l ac tr Heisn Hvs Hac Hrcn Hnsa Hnvs Hvl Han Hprc Hfmpc f' l' tr' H.
         + simpl in H. inversion H.
@@ -1938,6 +1934,7 @@ Definition FN1 : PRNat.FlowNet :=
     let c := fun (x y: nat) => 10%Q in
     (([0;1],[(0,1)]),c,0,1).
 
+Compute (PRNat.gpr_trace FN1).
 
 Definition FN2 : PRNat.FlowNet := 
     let c := fun (x y: nat) => 
@@ -1955,6 +1952,11 @@ Definition FN2 : PRNat.FlowNet :=
     in
     (([0;1;2;3;4;5],[(0,1);(0,3);(1,2);(2,3);(2,5);(3,4);(4,1);(4,5)]),c,0,5).
 
+Compute (PRNat.gpr_trace FN2).
+
+Compute (@PRNat.excess FN2 
+[(0, 1, 10%Q); (0, 3, 4%Q); (3, 4, 7%Q); (4, 1, 0%Q); (1, 2, 10%Q); (2, 5, 7%Q); (4, 5, 7%Q); (2, 3, 3%Q)] 5).
+
 Definition FN3 : PRNat.FlowNet := 
     let c := fun (x y: nat) => 
         match x, y with
@@ -1969,18 +1971,9 @@ Definition FN3 : PRNat.FlowNet :=
     in
     (([0;1;2;3;4;5],[(0,1);(0,2);(1,3);(1,4);(2,4);(3,5);(4,5)]),c,0,5).
 
-Compute (PRNat.gpr_trace FN1).
-
-Compute (PRNat.gpr_trace FN2).
-
-Compute (@PRNat.excess FN1 [(0,1,10%Q)] 1). (* vastus: 10 *)
-
-Compute (@PRNat.excess FN2 [(0, 1, 15%Q); (0, 3, 4%Q); (3, 4, 10%Q); (
-    4, 1, 5%Q); (1, 2, 12%Q); (2, 5, 7%Q); (
-    4, 5, 10%Q); (2, 3, 3%Q)] 5). (* vastus: 17 *)
-
-Compute (@PRNat.excess FN3 [(0, 1, 4%Q); (0, 2, 2%Q); 
-(2, 4, 2%Q); (4, 5, 2%Q); (1, 3, 4%Q); (3, 5, 4%Q)] 5). (* vastus: 6 *)
+Compute (PRNat.gpr_trace FN3).
+Compute (@PRNat.excess FN3 
+[(0, 1, 4%Q); (0, 2, 2%Q); (2, 4, 2%Q); (4, 5, 2%Q); (1, 3, 4%Q); (3, 5, 4%Q)] 5).
 
 Definition FN_excess : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * nat)%type :=
   let c := fun (x y : nat) =>
@@ -1990,7 +1983,7 @@ Definition FN_excess : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * 
     | 1, 4 => 13%Q
     | 2, 3 => 2%Q
     | 3, 4 => 8%Q
-    | 3, 6 => 2%Q
+    | 3, 6 => 10%Q
     | 4, 2 => 18%Q
     | 5, 1 => 5%Q
     | 5, 2 => 10%Q
@@ -1998,51 +1991,23 @@ Definition FN_excess : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * 
     end
   in
   (([0;1;2;3;4;5;6],[(0,5);(1,2);(1,4);(2,3);(3,4);(3,6);(4,2);(5,1);(5,2)]), c, 0, 6).
+Compute (PRNat.gpr_trace FN_excess).
+Compute (@PRNat.excess FN_excess 
+[(0, 5, 2%Q); (5, 1, 2%Q); (1, 2, 2%Q); (2, 3, 2%Q); (3, 4, 0%Q); (4, 2, 0%Q); (3, 6, 2%Q); (1, 4, 0%Q)] 6). (* vastus: 2 *)
 
-Compute (@PRNat.excess FN_excess [(0, 5, 19%Q);
-(1, 2, 19%Q);
-(1, 4, 13%Q);
-(2, 3, 2%Q);
-(3, 4, 8%Q);
-(3, 6, 2%Q);
-(4, 2, 18%Q);
-(5, 1, 5%Q);
-(5, 2, 10%Q)] 6). (* vastus: 2 *)
+Definition FN_rand_test : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * nat)%type :=
+  let c := fun (x y : nat) =>
+    match x, y with
+    | 0, 1 => 8%Q
+    | 0, 2 => 19%Q
+    | 1, 2 => 18%Q
+    | _, _ => 0%Q
+    end
+  in
+  (([0;1;2],[(0,1);(0,2);(1,2)]), c, 0, 2).
+Compute (PRNat.gpr_trace FN_rand_test).
+Compute (@PRNat.excess FN_rand_test [(0, 1, 8%Q); (0, 2, 19%Q); (1, 2, 8%Q)] 2).
 
 (* Ekstraheerimine *)
-
-Extraction Language OCaml.
-Require Import ZArith.
-Require Import ExtrOcamlBasic.
-Require Import ExtrOcamlZInt.
-Require Import ExtrOcamlNatInt.
-Extract Inductive Q => "(int * int)" [ "" ].
-Set Extraction File Comment "Extracted from the push-relabel algorithm proof in Rocq.".
-
-(* Näited erinevatest arvutüüpidest *)
-
-Definition example_Q : Q := (7#12).
-Definition example_Q2 : Q := 6.
-Definition example_Z : Z := 45.
-Definition example_pos : positive := 5.
-Definition example_nat : nat := 10.
-Definition example_R : PRNat.R := 6%Q.
-Extraction example_nat.
-
-(* Transpordivõrgu FN2 ekstraheerimine *)
-
-(* 5 katse põhjal keskmine ajakuju FN2 võrgul:
-Algne: 0.0994ms
-Muudatused 1: 0.0752ms
-Muudatused 2: 0.052ms
-
-1: täis- ja ratsionaalarvud muudetud + tõeväärtused, listid jne (OCamlBasic jne)
-2: VSet.add lisab aktiivse tipu listi lõppu, mitte algusesse (FIFO). Tõestused katki, aga (väikestel võrkudel) kiirem.
-*)
-
-Recursive Extraction PRNat.gpr_trace FN2.
-
-(* #use "main.ml";; *)
-(* dune exec push-relabel *)
-
-(* MkSet moodulis on kaks Extract Constant käsku, mis VIST midagi ei tee. *)
+Require Extraction.
+Recursive Extraction PRNat.gpr_trace.

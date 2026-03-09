@@ -1,1 +1,1 @@
-bin/main.ml: Hashtbl Int Obj Printf Q Set Stdlib Sys
+bin/main.ml: Format Hashtbl Int List Obj Printf Set Stdlib Sys

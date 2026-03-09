@@ -92,9 +92,12 @@ Extract Inductive unit => "unit" [ "()" ].
 Extract Inductive bool => "bool" [ "true" "false" ].
 Extract Inductive prod => "(*)" [ "(,)" ].
 Extract Inductive list => "list" [ "[]" "(::)" ].
-
-Extract Inductive nat => int [ "0" "Stdlib.Int.succ" ].
+(* 
+Extract Inductive nat => int [ "0" "Stdlib.Int.succ" ] 
+"(fun fO fS n → if n=0 then fO () else fS (n-1))". *)
 
 Extract Constant NatT.eq => "fun x y -> x = y".
 
-Recursive Extraction A.rev.
+Require Import ExtrOcamlBasic.
+Require Import ExtrOcamlNatInt.
+Recursive Extraction plus.
