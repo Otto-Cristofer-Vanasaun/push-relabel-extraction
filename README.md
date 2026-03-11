@@ -21,6 +21,7 @@
 - `length` to OCaml `List.length`
 - `map` to OCaml `List.map`
 - `VertexMap` and `EdgeMap` to OCaml `Hashtbl` (along with all of the functions defined for `VertexMap` and `EdgeMap`).
+- Added `ExcessMap` for caching the results of the `excess` function.
 - `VertexSet` and `EdgeSet` to OCaml `Set` (along with all of the functions; most use the functions defined for the `Set` type, except for `VertexSet.find_first`, which uses the `find` function defined in `Seq`).
 
 #### Description of files
