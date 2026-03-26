@@ -1201,7 +1201,7 @@ Module PR
     Proof.
         unfold FlowMapPositiveConstraint, PreFlowCond, PushCondition.
         destruct fn as [[[[vs es] c] s] t]. unfold CapacityConstraint, NonDeficientFlowConstraint.
-        intros. destruct H2. edestruct (Q.min_spec_le); destruct H4; rewrite H5; try lra.
+        intros. destruct H2. edestruct (Q.min_spec_le); destruct H4; rewrite H5. try lra.
         unfold res_cap. destruct ((u, v) ∈e es) eqn : E.
         + destruct H1. specialize (H1 _ _ E). unfold R in *. lra.
         + apply H0.
@@ -1604,7 +1604,7 @@ Module PR
         - destruct p. destruct_guard_in H.
         * cbn zeta in H. destruct_guard_in H.
         ** apply VSet.choiceSome in E0. destruct E0. 
-         eapply IHg in H; eauto.
+         eapply IHg in H. eauto.
         (* *** clear H IHg. destruct_guard.
         **** apply VSet.AddIsSet. auto.
         **** apply VSet.AddIsSet; auto. *)
@@ -2153,7 +2153,7 @@ Module PR
     (* Kui tipud u ja v kuuluvad tippude hulka ning servade (u, v) läbilaskevõime on mittenegatiivne ja sisend pole väljund ning
      gpr_trace tagastab voo f' ja kõrgused l', siis järeldub, et aktiivsed tipud on ainult sisend või väljund,
      on täidetud voo nõuded ja on säilitatud invariandid, et sisendi kõrgus on võrdne tippude arvuga ja väljundi kõrgus on 0 *)
-    Lemma FlowConservationGprMain fn (l:NMap.t nat):
+    Lemma FlowConservationGprMain fn:
         let '((vs, es),c,s,t) := fn in
         (forall u v, ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
         True ->
@@ -2168,10 +2168,10 @@ Module PR
         destruct fn as [[[[vs es] c] s] t]. 
         intros H H0 H1 Hst f' l' tr' H2. unfold gpr_trace in H2.
         destruct_guard_in H2. 
-        eapply (InitialGpr (vs, es, c, s, t)) in E0 as P; eauto.
+        eapply (InitialGpr (vs, es, c, s, t)) in E0 as P. eauto.
         + destruct P, H4, H5, H6, H7. 
         eapply (FlowConservationGpr (vs, es, c, s, t)) in H2; eauto.
-        - destruct H2, H9, H10. split; auto. split; auto.
+        - destruct H2, H9, H10. split. auto. split; auto.
         simpl in H10, H11. rewrite NMap.FindReplaceEq in H10.
         rewrite NMap.FindReplaceNeq, NMap.FindEmpty in H11; auto.
         - simpl. unfold NoSteepArc. intros. simpl. destruct (equal u s).
