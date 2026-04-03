@@ -1,1 +1,1 @@
-bin/main.ml: Format Hashtbl Int Obj Printf Seq Set Stdlib Sys
+bin/main.ml: Format Hashtbl Int List Obj Printf Seq Set Stdlib Sys

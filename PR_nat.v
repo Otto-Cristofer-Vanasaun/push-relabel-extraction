@@ -6,7 +6,12 @@ Require Import Coq.QArith.Qminmax.
 Require Import Coq.QArith.QOrderedType.
 Require Import Lia. (*tactic: lia*)
 Require Import Lqa. (*tactic: lra*)
+Require Import Coq.Arith.PeanoNat.  
+From Coq Require Import QArith.
 Require Extraction.
+Require Setoid.
+
+(* Tõestamistaktikad *)
 
 Ltac destruct_guard_in H :=
     generalize H; clear H;
@@ -28,6 +33,11 @@ Ltac destruct_guard :=
     end.
 
 Ltac inv_clear H := inversion H; subst; clear H.
+
+Ltac Qred_correct := repeat (let n := fresh in set (n:=Qred _); rewrite (Qred_correct); unfold n; clear n).
+
+
+(* Geneeriline tüüp T, millega algoritm on tõestatud *)
     
 Module Type T.
     Parameter V: Type.
@@ -38,6 +48,9 @@ Module Type T.
     Lemma eqb_neq u v: u<>v -> eqb u v = false.
     Proof. intros. destruct (equal u v); auto. contradiction. Qed. 
 End T.
+
+(* Naturaalarvude tüüp Nat, millega algoritmi praktiliselt kasutada saab.
+    Sellega on algoritm ka ekstraheeritud. *)
 
 Module Nat <: T.
     Definition V := nat.
@@ -53,20 +66,44 @@ Module Nat <: T.
     Proof. intros. destruct (equal u v); auto. contradiction. Qed. 
 End Nat.
 
+(* Elementide mittekorduvus hulkades *)
+
 Fixpoint Distinct {t} (xs:list t) : Prop :=
     match xs with 
     | nil => True
     | x::xs => ~(In x xs) /\ Distinct xs
     end.
 
+Lemma snoc_distinct {t} xs: forall (a:t), 
+    Distinct xs -> ~In a xs -> Distinct (xs ++ a::nil).
+Proof.
+    induction xs; simpl; auto. intros a0 [H1 H2] H3. 
+    split; [|apply IHxs; tauto].
+    intros H. apply in_app_or in H. destruct H; try contradiction.
+    destruct H; subst; tauto.
+Qed.
+
+Lemma rev_distinct {t} (xs:list t): Distinct xs -> Distinct (rev xs).
+Proof.
+    induction xs; intros; auto. destruct H. 
+    simpl. apply snoc_distinct; auto.
+    intro W. apply in_rev in W. tauto.
+Qed.
+
+(* Vastavuste (mappide) defineerimine
+    Kasutusel andmestruktuurides EdgeMap, VertexMap ja ExcessMap. *)
+
 Module Type MapSpec (T:T).
     Import T.
     (* Arvutamine *)
     Parameter t: forall (e:Type) {d:e}, Type.
+    Parameter eq_nat: @t nat O -> @t nat O -> Prop.
+    Parameter eq_rat: @t Q 0 -> @t Q 0 -> Prop.
     Parameter empty: forall {e:Type} (d:e), @t e d.
     Parameter replace: forall {e:Type} {d:e}, V -> e -> @t e d -> @t e d.
     Parameter find: forall {e:Type} (d:e), @t e d -> V -> e.
     Parameter update: forall {e:Type} {d:e}, V -> (e->e) -> @t e d -> @t e d. 
+    Parameter remove: forall {e:Type} (d:e), V -> @t e d -> @t e d.
     Notation "m [ v ]" := (find m v) (at level 12). 
     (* Omadused *)
     Parameter FindUpdateEq: forall {e d} {f:e->e} (xs:@t e d) u,
@@ -87,6 +124,30 @@ Module MkMap (T:T) <: MapSpec (T).
     Import T.
     Definition t (e:Type) {d:e} := list (V * e).
     
+    Fixpoint eq_nat (map1: @t Datatypes.nat O) (map2: @t Datatypes.nat O) := 
+        match map1, map2 with
+        | nil, nil => True
+        | nil, (_::map2') => False
+        | (_::map1'), nil => False
+        | ((k1,v1)::map1'), ((k2,v2)::map2') => 
+            if (T.eqb k1 k2) && (v1 =? v2) then
+                    eq_nat map1' map2'
+            else
+                False
+        end.
+
+    Fixpoint eq_rat (map1: @t Q 0) (map2: @t Q 0) := 
+        match map1, map2 with
+        | nil, nil => True
+        | nil, (_::map2') => False
+        | (_::map1'), nil => False
+        | ((k1,v1)::map1'), ((k2,v2)::map2') => 
+            if (T.eqb k1 k2) && (Qeq_bool v1 v2) then
+                    eq_rat map1' map2'
+            else
+                False
+        end.
+
     Definition empty {e:Type} d: @t e d:= nil.
 
     (* Eemaldab tipu v järjendist xs, kui see seal leidub *)
@@ -131,6 +192,8 @@ Module MkMap (T:T) <: MapSpec (T).
             else 
                 find d xs v
         end.
+
+    (* Tõestamine *)
     
     Lemma FindEmpty: forall {e} {d:e} k, find d (empty d) k = d.
     Proof.
@@ -210,7 +273,10 @@ Module MkMap (T:T) <: MapSpec (T).
         * rewrite -> FindRemoveNeq; auto. 
         - simpl. destruct (equal u v0); auto.
         Qed.
+    
 End MkMap.
+
+(* Hulkade defineerimine. Kasutusel andmestruktuurides VertexSet ja EdgeSet. *)
 
 Module Type SetSpec (T:T).
     Import T.
@@ -452,93 +518,6 @@ Module MkSet (T:T) <: SetSpec (T).
         - inversion H0.
         Qed.
 
-    Definition fold_left {a:Type} (f:a -> V -> a) (xs:t) (x:a) := 
-        fold_left f xs x.
-
-    Inductive IsSet : t -> Prop :=
-        | NilIsSet: IsSet nil
-        | ConsIsSet {a xs} : (a ∈ xs) = false -> IsSet xs -> IsSet (a::xs).
-    
-    Lemma EmptyIsSet: IsSet empty.
-    Proof.
-        apply NilIsSet.
-    Qed.
-
-
-    Lemma RemoveOtherInFalse a b xs: a ∈ xs = false -> a ∈ remove b xs = false.
-    Proof.
-        intros. induction xs; auto.
-        simpl. destruct (equal b a0).
-        + apply IHxs. subst. inversion H. destruct (equal a a0); auto.
-        inversion H1.
-        + simpl. destruct (equal a a0).
-        - subst. simpl in *. rewrite eqb_refl in H. inversion H.
-        - apply IHxs. simpl in *. destruct (equal a a0); auto.
-        subst. inversion H.
-    Qed. 
-    
-    Lemma RemoveSameInFalse a xs: a ∈ remove a xs = false.
-    Proof.
-        intros. induction xs; auto.
-        simpl. destruct (equal a a0); auto.
-        simpl. destruct (equal a a0); auto.
-        subst. contradiction.
-        Qed.   
-
-    Lemma RemoveIsSet a xs: IsSet xs -> IsSet (remove a xs).
-    Proof.
-        intros. induction xs; auto.
-        simpl. destruct (equal a a0). 
-        + subst. apply IHxs. inversion H. subst. apply H3.
-        + inversion H. subst. apply ConsIsSet. 
-        - rewrite <- H2. apply MemRemoveNeq.
-        intro C. inv_clear C. contradiction.
-        - auto.
-         Qed.
-
-    Lemma AddIsSet a xs: IsSet xs -> IsSet (add a xs).
-    Proof. 
-        intros. induction xs. 
-        + unfold add. simpl. apply ConsIsSet; auto.
-        + unfold add. simpl. destruct (equal a a0).
-        - subst. inversion H. subst. auto.
-        - inversion H. subst. apply ConsIsSet.
-        * simpl. rewrite eqb_neq; auto.
-        apply RemoveSameInFalse.
-        * apply ConsIsSet.
-        ** apply RemoveOtherInFalse. apply H2.
-        ** apply RemoveIsSet. apply H3.
-        Qed.
-
-    Lemma ChoiceIsSet a xs: IsSet xs -> forall xs', choice xs = Some (a, xs') -> IsSet xs'.
-    Proof.
-        intros. induction xs.
-        + inversion H0.
-        + inversion H. subst. inversion H0. subst. apply RemoveIsSet, H4.
-    Qed.
-
-    Lemma FilterOtherInFalse a f xs: a ∈ xs = false -> a ∈ filter f xs = false.
-    Proof. 
-        intros. induction xs; auto.
-        simpl. destruct (f a0) eqn : E.
-        + simpl. destruct (equal a a0).
-        - subst. simpl in *. rewrite eqb_refl in H. inversion H.
-        - apply IHxs. simpl in *. destruct (equal a a0); auto.
-        subst. inversion H.
-        + apply IHxs. simpl in *. destruct (equal a a0); auto.
-        subst. inversion H.
-        Qed.
-
-    Lemma filterIsSet f xs: IsSet xs -> IsSet (filter f xs).
-    Proof.
-        intros. induction xs; auto.
-        simpl. destruct (f a). 
-        + apply ConsIsSet.
-        - apply FilterOtherInFalse. inversion H. auto.
-        - inversion H. subst. apply IHxs. apply H3.
-        + inversion H. subst. apply IHxs. apply H3.
-        Qed.
-
     Lemma choiceSome s: forall a s', 
         choice s = Some (a,s') -> a ∈ s=true /\ s'=remove a s.
     Proof.
@@ -555,6 +534,8 @@ Module MkSet (T:T) <: SetSpec (T).
         ** rewrite eqb_neq; auto. simpl in *. inversion H. contradiction.
     Qed.
 End MkSet.
+
+(* Tipupaaride defineerimine *)
 
 Module Type Product (A:T) (B:T) <: T.
     Definition V := (A.V * B.V)%type.
@@ -581,6 +562,8 @@ Module Tuple (T U:T) <: Product (T) (U).
     Proof. intros. destruct (equal u v); auto. contradiction. Qed. 
 End Tuple.
 
+(* Algoritmi defineerimine ja tõestamine *)
+
 Module PR
     (T:T) 
     (Edge : Product (T) (T)) 
@@ -596,11 +579,15 @@ Module PR
     Definition R := Q.
 
     Declare Scope EdgeMap.
-    Notation "m '[' v ']'" := (EdgeMap.find 0 m v) (at level 12):EdgeMap.
     Declare Scope VertexMap.
-    Notation "m '[' v ']'" := (VertexMap.find O m v) (at level 12):VertexMap. 
     Declare Scope ExcessMap.
-    Notation "m '[' v ']'" := (ExcessMap.find 0 m v) (at level 12):ExcessMap. 
+    Notation "m '[' v ']f'" := (EdgeMap.find 0 m v) (at level 12):EdgeMap.
+    Notation "m '[' v ']l'" := (VertexMap.find O m v) (at level 12):VertexMap. 
+    Notation "m '[' v ']e'" := (ExcessMap.find 0 m v) (at level 12):ExcessMap. 
+    Local Open Scope EdgeMap.
+    Local Open Scope VertexMap.
+    Local Open Scope ExcessMap.
+    
 
     Notation "v '∈v' s" := (VertexSet.mem v s) (at level 12). 
 
@@ -621,8 +608,9 @@ Module PR
 
     (* lähtetipp *)
     Definition source (fn:FlowNet) := 
-        let '((vs, es),c,s,t) := fn in s.        
-    
+        let '((vs, es),c,s,t) := fn in s.   
+
+    (* Ratsionaalarvude jaoks vajalikud definitsioonid *)
     Definition QLe (a b: Q): bool :=
         match Qlt_le_dec b a with
         | left _ => false
@@ -655,80 +643,67 @@ Module PR
 
     Definition QSumList :=
         fold_right Qplus 0 .
+    
+    (* Arvutab transpordivõrgu fn, millel on eelvoog f, tipu x ülejäägi,
+    lahutades väljaminevast voost maha sissetuleva voo. *)
+    Definition excess (fn:FlowNet) (f: EdgeMap.t R) : V -> R :=
+        let '((vs, es),c,s,t) := fn in
+        fun u => 
+        Qred (
+            QSumList (map (fun v => f[(v,u)]f) (VertexSet.to_list vs)) -
+            QSumList (map (fun v => f[(u,v)]f) (VertexSet.to_list vs))).
 
-    Local Open Scope ExcessMap.
-
-    (* Uuendab ülejääkide andmestruktuuri, vähendades tipu u ülejääki delta võrra ja suurendades tipu v ülejääki delta võrra *)
+    (* Uuendab ülejääkide andmestruktuuri,
+    vähendades tipu u ülejääki delta võrra ja suurendades tipu v ülejääki delta võrra *)
     Definition excess_update e u delta : V -> ExcessMap.t R :=
         fun v =>
-            let old_excess_u := e[u] in
-            let old_excess_v := e[v] in
-            let new_map_u := ExcessMap.replace u (old_excess_u - delta) e in
-            ExcessMap.replace v (old_excess_v + delta) new_map_u.
-    
-    Local Close Scope ExcessMap.
-
-    Local Open Scope EdgeMap.
-    (* Leiab sihttippu ülejäägi ehk transpordivõrgu maksimaalse voo. *)
-    Definition max_flow (fn: FlowNet) (e: ExcessMap.t R) : R :=
-        let '((vs,es),c,s,t) := fn in
-        ExcessMap.find 0 e s.
+            let new_map_u := @ExcessMap.update R 0 u (fun x => Qred (x - delta)) e in
+            @ExcessMap.update R 0 v (fun x => Qred (x + delta)) new_map_u.
 
     (* Arvutab välja serva (u, v) alles oleva läbilaskevõime. 
-    c u v tähistab serva läbilaskevõimet ja f[(u,v)] serva voogu. 
+    c u v tähistab serva läbilaskevõimet ja f[(u,v)]f serva voogu. 
     Tingimus (u,v) ∈e es tagastab tõeväärtuse true, siis kui serv (u, v) kuulub servade hulka es.
     Kui serv (u, v) ei kuulu servade hulka, siis tagastatakse voog, mis läheb tagurpidi ehk serva (v, u) voog.*)
     Definition res_cap (fn: FlowNet) (f: EdgeMap.t R) u v : R :=
         let '((vs, es),c,s,t) := fn in
         if (u,v) ∈e es then
-            c u v - f[(u,v)]
+            c u v - f[(u,v)]f
         else 
-            f[(v,u)]
+            f[(v,u)]f
     .
 
     Definition E (fn: FlowNet) (f: EdgeMap.t R) :=
         let '((vs, es),c,s,t) := fn in
-        EdgeSet.filter (fun '(u, v) => f[(u,v)] <? c u v) es.    
+        EdgeSet.filter (fun '(u, v) => f[(u,v)]f <? c u v) es.    
     
+    (* Jääkvõrk *)
     Definition res_net (fn: FlowNet) (f: EdgeMap.t R) : FlowNet :=
         let '((vs, es),c,s,t) := fn in
         ((vs,E fn f),res_cap fn f,s,t).
 
-    Local Close Scope EdgeMap.
 
-    Local Open Scope ExcessMap.
-    (* valib tipu u ülejäägist ning kaares (u,v) alles olevast läbilaskevõimest Qmin abil miinimumi ja saadab selle voona edasi
-     järgmisesse tippu v.
+    (* valib tipu u ülejäägist ning kaares (u,v) alles olevast läbilaskevõimest Qmin abil miinimumi 
+     ja saadab selle voona edasi järgmisesse tippu v.
      Kui (u,v) ∈e es ehk serv (u, v) kuulub hulka es, siis suurendatakse serva (u, v) voogu delta võrra. 
      False korral vähendatakse serva (v, u) voogu delta võrra.
      Töö käigus uuendatakse ka tippude ülejääkide andmestruktuuri. *)
     Definition push fn f e u v : (EdgeMap.t R * ExcessMap.t R) :=
         let '((vs, es),c,s,t) := fn in
-        let excess_value := e[u] in
-        let delta := Qmin excess_value (res_cap fn f u v) in
+        let delta := Qmin (e[u]e) (res_cap fn f u v) in
         let new_excessmap := excess_update e u delta v in
         if (u,v) ∈e es  then
-             ((EdgeMap.update (u,v) (fun x=>x+delta) f), new_excessmap)
+             ((EdgeMap.update (u,v) (fun x=> Qred (x+delta)) f), new_excessmap)
         else 
-            ((EdgeMap.update (v,u) (fun x=>x-delta) f), new_excessmap)
+            ((EdgeMap.update (v,u) (fun x=> Qred(x-delta)) f), new_excessmap)
     .
 
-    Definition option_min (x:option nat) (y:nat): option nat :=
-        match x with
-        | None => Some y
-        | Some a => Some (min a y)
-        end.
-
-    Local Close Scope ExcessMap.
-
-    Local Open Scope VertexMap.
-
+    (* Leiab vähima kõrgusega tipu. *)
     Fixpoint smallest_rank l xs r :=
         match xs, r with
         | nil, _ => r
         | v::xs, None   => smallest_rank l xs (Some v)
         | v::xs, Some r => 
-            if (l[r] <=? l[v])%nat 
+            if (l[r]l <=? l[v]l)%nat 
                 then smallest_rank l xs (Some r)
                 else smallest_rank l xs (Some v)
         end.
@@ -747,7 +722,7 @@ Module PR
         let '((vs, es),c,s,t) := fn in
         match relabel_find fn f l u vs with
         | None => None
-        | Some v => Some (VertexMap.replace u (1+ l[v])%nat l)
+        | Some v => Some (VertexMap.replace u (1+ l[v]l)%nat l)
         end.
 
     (* Otsib tippude hulgast vs' tippu v, kuhu voogu saata, kusjuures:
@@ -756,153 +731,28 @@ Module PR
     Definition find_push_node fn f (l: @VertexMap.t nat O) u (vs': VertexSet.t) :=
         let '((vs, es),c,s,t) := fn in
         VertexSet.find_first (fun v => 
-            (l[u] =? 1+ l[v])%nat &&
+            (l[u]l =? 1+ l[v]l)%nat &&
                 (0 <? res_cap fn f u v)) vs'.
-
-    Local Close Scope VertexMap.
-
-    Local Open Scope ExcessMap.
 
     (* Kontrollib, et antud tipp v ei oleks lähtetipp ega sihttipp ja tipu ülejääk oleks suurem kui 0. *)
     Definition has_excess_not_sink (fn: FlowNet) (e: ExcessMap.t R) v :=
         let '((_, _),_,s,t) := fn in
         if T.eqb v t || T.eqb v s then
             false
-        else if 0 <? e[v] then 
+        else if 0 <? e[v]e then 
             true
         else
             false
     .
 
-    Local Close Scope ExcessMap.
-
-    (* Alternatiivid, kus Tr on olemas *)
-    (* Inductive Tr : Type :=
-        | Init: @EdgeMap.t Q 0 -> @ExcessMap.t R 0 -> @VertexMap.t nat O -> VertexSet.t ->  Tr
-        | Push: V -> V -> @EdgeMap.t Q 0 -> @ExcessMap.t R 0 -> VertexSet.t ->  Tr
-        | Relabel : V -> nat -> @VertexMap.t nat O ->  Tr
-        | OutOfGas
-        | RelabelFailed
-        . *)
-    (* 
-        Fixpoint gpr_helper_trace fn f e l ac g tr: (option (EdgeMap.t Q * VertexMap.t nat)*list Tr) :=
-        let '((vs, es),c,s,t) := fn in
-        match g with
-        | O => (None, OutOfGas::tr)
-        | S g' => 
-            match VertexSet.choice ac with
-            | None => (Some (f,l),tr)
-            | Some (u,ac') =>
-            match find_push_node fn f l u vs with
-            | Some v =>
-                let (f',e') := push fn f e u v in
-                let ac' := if 0 <? (ExcessMap.find 0 e' u) then ac else ac' in
-                if has_excess_not_sink fn e' v then 
-                    let ac'' := VertexSet.add v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
-                else 
-                    let ac'' := VertexSet.remove v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
-            | None =>
-                match relabel fn f l u with
-                | None => (None, RelabelFailed::tr)
-                | Some l' =>
-                    gpr_helper_trace fn f e l' ac g' (Relabel u (VertexMap.find 0 l' u)%nat l'::tr)
-                end
-            end
-            end 
-        end.
-    
-    Lemma gpr_helper_trace_fn fn f e l ac g tr : 
-        gpr_helper_trace fn f e l ac g tr =
-            let '((vs, es),c,s,t) := fn in
-            match g with
-            | O => (None, OutOfGas::tr)
-            | S g' => 
-                match VertexSet.choice ac with
-                | None => (Some (f,l),tr)
-                | Some (u,ac') =>
-                match find_push_node fn f l u vs with
-                | Some v =>
-                    let (f',e') := push fn f e u v in
-                    let ac' := if 0 <? (ExcessMap.find 0 e' u) then ac else ac' in
-                    if has_excess_not_sink fn e' v then 
-                        let ac'' := VertexSet.add v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
-                    else 
-                        let ac'' := VertexSet.remove v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
-                | None =>
-                    match relabel fn f l u with
-                    | None => (None, RelabelFailed::tr)
-                    | Some l' =>
-                        gpr_helper_trace fn f e l' ac g' (Relabel u (VertexMap.find 0 l' u)%nat l'::tr)
-                    end
-                end
-                end 
-            end.
-    Proof. destruct g; auto. Qed. 
-
-            Definition gpr_trace (fn:FlowNet): (option (EdgeMap.t Q * VertexMap.t nat)*list Tr) :=
-        let '((vs, es),c,s,t) := fn in
-        let vs_size := VertexSet.size vs in
-        let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
-        let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
-        let '(f, e, active) := initial_push fn (@ExcessMap.empty R 0) in
-        gpr_helper_trace fn f e labels active bound (Init f e labels active :: nil).
-        
-        
-            Lemma FlowConservationGpr fn g:forall (f: @EdgeMap.t Q 0) (e:ExcessMap.t Q) (l: @VertexMap.t nat O) ac tr,
-        let '((vs, es),c,s,t) := fn in
-        (* Iga tipp u ja v korral, kui nende vahel on serv, siis need tipud kuuluvad tippude hulka*)
-        (forall u v, ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
-        (* Leidub tippusid, mille vahel on läbilaskevõime *)
-        ResCapNodes fn f ->
-        (* Täidetud on invariant h(u) <= h(v) + 1 *)
-        NoSteepArc fn f l ->
-        (* Iga tipp n korral, kui n kuulub aktiiVertexSete tippude hulka, siis n kuulub ka tippude hulka*)
-        (forall n, n ∈v ac = true -> n ∈v vs = true) ->
-        (* Graafis on säilitatud korrektsed kõrgused *)
-        ValidLabeling fn f l ->
-        (* Iga tipp n korral, kui n kuulub aktiiVertexSete tippude hulka, siis see on ekvivalentne sellega, et tipus n on ülejääk ja 
-        tipp n pole sisend ega väljund*)
-        (forall n, n ∈v ac = true <-> (ActiveNode fn f e n /\ n<>t /\ n<>s)) ->
-        (* Täidetud on eelvoo tingimused *)
-        PreFlowCond fn f e ->
-        (* Vood ja läbilaskevõimed on mittenegatiivsed *)
-        FlowMapPositiveConstraint fn f ->
-        (* gpr_helper_trace tagastab voo f' ja kõrgsued l', siis sellest järeldub, et*)
-        forall f' l' tr', 
-        gpr_helper_trace fn f e l ac g tr = (Some (f', l'),tr') ->
-        (* Iga tipu n korral, mis on aktiivne on n väljund või sisend*)
-        (forall n, ActiveNode fn f' e n -> n=t \/ n=s) /\
-        (* Täidetud on voo säilivuse nõue*)
-        FlowConservationConstraint fn f' e /\
-        (* Sisendi ja väljundi kõrgus on funktsiooni gpr_helper_trace lõpus sama, mis oli alguses *)
-        (VertexMap.find 0 l s)%nat = (VertexMap.find 0 l' s)%nat /\ (VertexMap.find 0 l t)%nat = (VertexMap.find 0 l' s)%nat.
-    Proof. Admitted. 
-    
-    Lemma FlowConservationGprMain fn (l: @VertexMap.t nat O):
-        let '((vs, es),c,s,t) := fn in
-        (forall u v, ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
-        True ->
-        (forall u v, c u v >= 0) ->
-        s<>t ->
-        forall f' e' l' tr', 
-        gpr_trace fn = (Some (f',l'),tr') ->
-        (forall n, ActiveNode fn f' e' n -> n=t \/ n=s) /\ 
-        FlowConservationConstraint fn f' e' /\
-        (VertexSet.size vs = VertexMap.find 0 l' s)%nat /\ (O=VertexMap.find 0 l' t)%nat.*)
-
-
-
     (* Leiab transpordivõrgus maksimaalse voo. Selleks:
-    - kontrollib piiraja g suurust (kui see on O, siis algoritm nurjub. Korrektse sisendi puhul see juht ei realiseeru);
+    - kontrollib piiraja g suurust (kui see on O, siis algoritm nurjub. 
+        Korrektse sisendi puhul see juht ei realiseeru);
     - võimalusel sooritab push-sammu;
     - kui push ei ole võimalik, sooritab relabel-sammu;
     - kui relabel nurjub, siis lõpetab töö (see juht korrektse sisendi puhul ei realiseeru);
-    - tagastab kaarte vood, tippude kõrgused ja tehtud sammude järjekorra. *)
-    Fixpoint gpr_helper_trace fn f e l ac g: (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
+    - tagastab kaarte vood, tippude ülejäägid ja tippude kõrgused. *)
+    Fixpoint gpr_helper fn f e l ac g: (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
         let '((vs, es),c,s,t) := fn in
         match g with
         | O => None
@@ -913,25 +763,25 @@ Module PR
             match find_push_node fn f l u vs with
             | Some v =>
                 let (f',e') := push fn f e u v in
-                let ac' := if 0 <? (ExcessMap.find 0 e' u) then ac else ac' in
+                let ac' := if 0 <? (ExcessMap.find (Qred 0) e' u) then ac else ac' in
                 if has_excess_not_sink fn e' v then 
                     let ac'' := VertexSet.add v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' 
+                    gpr_helper fn f' e' l ac'' g' 
                 else 
                     let ac'' := VertexSet.remove v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' 
+                    gpr_helper fn f' e' l ac'' g' 
             | None =>
                 match relabel fn f l u with
                 | None => None
                 | Some l' =>
-                    gpr_helper_trace fn f e l' ac g' 
+                    gpr_helper fn f e l' ac g' 
                 end
             end
             end 
         end.
     
-    Lemma gpr_helper_trace_fn fn f e l ac g : 
-        gpr_helper_trace fn f e l ac g =
+    Lemma gpr_helper_fn fn f e l ac g : 
+        gpr_helper fn f e l ac g =
             let '((vs, es),c,s,t) := fn in
             match g with
             | O => None
@@ -942,206 +792,264 @@ Module PR
                 match find_push_node fn f l u vs with
                 | Some v =>
                     let (f',e') := push fn f e u v in
-                    let ac' := if 0 <? (ExcessMap.find 0 e' u) then ac else ac' in
+                    let ac' := if 0 <? (ExcessMap.find (Qred 0) e' u) then ac else ac' in
                     if has_excess_not_sink fn e' v then 
                         let ac'' := VertexSet.add v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g' 
+                        gpr_helper fn f' e' l ac'' g' 
                     else 
                         let ac'' := VertexSet.remove v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g'
+                        gpr_helper fn f' e' l ac'' g'
                 | None =>
                     match relabel fn f l u with
                     | None => None
                     | Some l' =>
-                        gpr_helper_trace fn f e l' ac g'
+                        gpr_helper fn f e l' ac g'
                     end
                 end
                 end 
             end.
     Proof. destruct g; auto. Qed.
 
-    (* Sooritab algoritmi initsialiseerimise, mille käigus saadetakse lähtetipust mööda kõiki sealt väljuvaid kaari
-    maksimaalne eelvoog. *)
-    
+    (* Teeb initsialiseerimissammus ühe push-sammu. *)
+    Definition initial_push_step fn '(f, e, ac) '(u, v) :=
+        let '((_, es),c,s,t) := fn in
+        let f' := @EdgeMap.update R 0 (u,v) (fun x=>Qred (x+c u v)) f in
+        let e' := ExcessMap.update v (fun x=>Qred (x+c u v)) 
+            (ExcessMap.update u (fun x=>Qred (x-c u v)) e) in
+        let ac' := 
+            if has_excess_not_sink fn e' v then 
+                (VertexSet.add v ac) 
+            else 
+                ac 
+        in
+        (f', e', ac').
+
+    (* Sooritab algoritmi initsialiseerimise, mille käigus saadetakse 
+    lähtetipust mööda kõiki sealt väljuvaid kaari maksimaalne eelvoog. *)
     Definition initial_push fn: (EdgeMap.t R * ExcessMap.t R * VertexSet.t) :=
         let '((_, es),c,s,t) := fn in
         let es' := EdgeSet.to_list (EdgeSet.filter (fun '(u,v) => T.eqb s u) es) in
-        fold_left (fun  '(f, e, ac) '(u,v) => 
-                let f' := EdgeMap.replace (u,v) (c u v) f in
-                let e' := ExcessMap.replace v (c u v) e in
-                let ac := 
-                    if has_excess_not_sink fn e v then 
-                        (VertexSet.add v ac) 
-                    else 
-                        ac 
-                in
-                (f', e', ac)
-        ) es' (@EdgeMap.empty R 0, @ExcessMap.empty R 0, VertexSet.empty).
+        let start_st := (EdgeMap.empty 0, ExcessMap.empty 0, VertexSet.empty) in
+        fold_left (initial_push_step fn) es' start_st.
 
-
-    (* Algväärtustab graafi, muutes tippude kõrgused nii, et tipp s on kõrgusega length vs ja kõik teised tipud kõrgusega 0. 
-    Seejärel teostab algse push sammu tipust s väljuvate kaarte peal. 
-    Lõpus kutsutakse välja Fixpoint gpr_helper_trace, mis leiab maksimaalse voo ja tagastab leitud väärtuse funktsioonile gpr_trace.*)
-    Definition gpr_trace (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
+    (* Algväärtustab graafi, muutes tippude kõrgused nii, et tipp s on kõrgusega length vs 
+    ja kõik teised tipud kõrgusega 0. 
+    Seejärel teostab algse push-sammu tipust s väljuvate kaarte peal. 
+    Lõpus kutsutakse välja gpr_helper, 
+    mis leiab maksimaalse voo ja tagastab leitud väärtuse funktsioonile gpr.*)
+    Definition gpr (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
         let '((vs, es),c,s,t) := fn in
         let vs_size := VertexSet.size vs in
         let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
         let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
         let '(f, e, active) := initial_push fn in
-        gpr_helper_trace fn f e labels active bound.
-    
-    Local Open Scope EdgeMap.
+        gpr_helper fn f e labels active bound.
+
+    (* Algoritmi sammud. Vajalik vaid funktsioonides, mis tagastavad järjendi list Tr. *)
+    Inductive Tr : Type :=
+        | Init: @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> @VertexMap.t nat O -> VertexSet.t ->  Tr
+        | Push: V -> V -> @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> VertexSet.t ->  Tr
+        | Relabel : V -> nat -> @VertexMap.t nat O ->  Tr
+        | OutOfGas
+        | RelabelFailed
+        .
+
+    (* Sama funktsioon kui gpr_helper, aga tagastab ka listi tehtud operatsioonidest
+    algoritmi töö kontrolliks. *)
+    Fixpoint gpr_helper_trace fn f e l ac g tr: (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
+        let '((vs, es),c,s,t) := fn in
+        match g with
+        | O => (None, OutOfGas::tr)
+        | S g' => 
+            match VertexSet.choice ac with
+            | None => (Some (f,e,l),tr)
+            | Some (u,ac') =>
+            match find_push_node fn f l u vs with
+            | Some v =>
+                let (f',e') := push fn f e u v in
+                let ac' := if 0 <? (e'[u]e) then ac else ac' in
+                if has_excess_not_sink fn e' v then 
+                    let ac'' := VertexSet.add v ac' in
+                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
+                else 
+                    let ac'' := VertexSet.remove v ac' in
+                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
+            | None =>
+                match relabel fn f l u with
+                | None => (None, RelabelFailed::tr)
+                | Some l' =>
+                    gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
+                end
+            end
+            end 
+        end.
+    Lemma gpr_helper_trace_fn fn f e l ac g tr : 
+        gpr_helper_trace fn f e l ac g tr =
+            let '((vs, es),c,s,t) := fn in
+            match g with
+            | O => (None, OutOfGas::tr)
+            | S g' => 
+                match VertexSet.choice ac with
+                | None => (Some (f,e,l),tr)
+                | Some (u,ac') =>
+                match find_push_node fn f l u vs with
+                | Some v =>
+                    let (f',e') := push fn f e u v in
+                    let ac' := if 0 <? (e'[u]e) then ac else ac' in
+                    if has_excess_not_sink fn e' v then 
+                        let ac'' := VertexSet.add v ac' in
+                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
+                    else 
+                        let ac'' := VertexSet.remove v ac' in
+                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
+                | None =>
+                    match relabel fn f l u with
+                    | None => (None, RelabelFailed::tr)
+                    | Some l' =>
+                        gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
+                    end
+                end
+                end 
+            end.
+    Proof. destruct g; auto. Qed. 
+
+    (* Sama funktsioon kui gpr, aga tagastab lisaks ka järjendi tehtud operatsioonidest. *)
+    (* Annab ülevaate täpsest algoritmi tööst. *)
+    Definition gpr_trace (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
+        let '((vs, es),c,s,t) := fn in
+        let vs_size := VertexSet.size vs in
+        let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
+        let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
+        let '(f, e, active) := initial_push fn in
+        gpr_helper_trace fn f e labels active bound (Init f e labels active :: nil).
+
+    (* Nii gpr kui gpr_trace tagastavad samad vood, ülejäägid ja kõrgused. *)
+    Lemma gpr_trace_eq_gpr: forall fn,
+    match gpr fn, gpr_trace fn with
+    | None, (None,_) => True
+    | Some (f,e,l), (None,_) => False 
+    | None, (Some (f',e',l'), _) => False
+    | Some (f,e,l), (Some (f',e',l'), _) =>
+        EdgeMap.eq_rat f f' /\ ExcessMap.eq_rat e e' /\ VertexMap.eq_nat l l'
+    end.
+    Proof. Admitted.
 
     (* Iga kaare voog ei ole suurem selle läbilaskevõimest. *)
     Definition CapacityConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) := 
         let '((vs, es),c,s,t) := fn in
         forall u v, EdgeSet.mem (u,v) es = true -> 
-            f[(u,v)] <= c u v.
+            f[(u,v)]f <= c u v.
     
-    Local Close Scope EdgeMap.
-    Local Open Scope ExcessMap.
+
+    (* ExcessMapis on õige ülejääk *)
+    Definition ExcessCached (fn:FlowNet) (f:EdgeMap.t Q) (e: ExcessMap.t R) := 
+        let '((vs, es),c,s,t) := fn in
+        forall v, excess fn f v = ExcessMap.find (Qred 0) e v.
+
 
     (* Tagastab true, kui igas tipus v, mis ei ole sisend, on ülejääk mittenegatiivne. *)
-    Definition NonDeficientFlowConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) (e: @ExcessMap.t R 0) := 
+    Definition NonDeficientFlowConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) := 
         let '((vs, es),c,s,t) := fn in
-        forall v, (v ∈v vs) = true -> v<>s -> 0 <= e[v].
+        forall v, (v ∈v vs) = true -> v<>s -> 0 <= excess fn f v.
 
-    (* Tagastab true kui igas tipus v.a sisendis ja väljundis on ülejääk 0 ehk kontrollib voo säilivuse tingimust.  *)
+    (* Tagastab true kui igas tipus v.a sisendis ja väljundis on ülejääk 0 
+    ehk kontrollib voo säilivuse tingimust.  *)
     Definition FlowConservationConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) (e:ExcessMap.t R) := 
         let '((vs, es),c,s,t) := fn in
-        forall v, (v ∈v vs) = true -> v<>s -> v<>t -> e[v] == 0.
+        forall v, (v ∈v vs) = true -> v<>s -> v<>t -> e[v]e == 0.
 
     (* Tagastab true kui on täidetud eelvoo nõuded *)
-    Definition PreFlowCond (fn:FlowNet) (f: @EdgeMap.t R 0) (e:ExcessMap.t R) := 
-            CapacityConstraint fn f /\ NonDeficientFlowConstraint fn f e. 
-
-    Local Close Scope ExcessMap.
-    Local Open Scope EdgeMap.
+    Definition PreFlowCond (fn:FlowNet) (f: @EdgeMap.t R 0) := 
+            CapacityConstraint fn f /\ NonDeficientFlowConstraint fn f. 
 
     (* Tagastab true kui voog ja läbilaskevõime on mittenegatiivsed *)
     Definition FlowMapPositiveConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) := 
         let '((vs, es),c,s,t) := fn in
-        forall u v, f[(u,v)] >= 0 /\ c u v >= 0.
-
-    Local Close Scope EdgeMap.
-    Local Open Scope ExcessMap.
+        forall u v, f[(u,v)]f >= 0 /\ c u v >= 0.
     
     (* Tagastab true, kui tipp v on tippude hulgas ja omab ülejääki *)
-    Definition ActiveNode (fn:FlowNet) (f: @EdgeMap.t R 0) (e:ExcessMap.t R) v := 
+    Definition ActiveNode (fn:FlowNet) (f: @EdgeMap.t R 0) v := 
         let '((vs, es),c,s,t) := fn in
-        (v ∈v vs) = true /\ e[v] > 0.
-
-    Local Close Scope ExcessMap.
-    Local Open Scope VertexMap.
+        (v ∈v vs) = true /\ excess fn f v > 0.
 
     (* Tagastab true, kui iga tipu u ja v korral, kui serv (u ,v) kuulub servade hulka on tippudel u ja v korrektsed kõrgused *)
     Definition ValidLabeling  fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) :=
         forall u v,
         let '((vs, es),c,s,t) := fn in
-        ((u,v) ∈e E fn f) = true  ->  (l[u] <= l[v] + 1)%nat.
+        ((u,v) ∈e E fn f) = true  ->  (l[u]l <= l[v]l + 1)%nat.
 
-    Inductive CPath (fn:FlowNet) (f: @EdgeMap.t R 0): V -> V -> Prop :=
-    | Start u : CPath fn f u u
-    | Step u v1 vn: ((u,v1) ∈e E fn f) = true -> CPath fn f v1 vn ->  CPath fn f u vn
-    .
-
-    (* Graafis ei leidu enam täiendavaid teid *)
-    Definition NoAugPath (fn:FlowNet) (f: @EdgeMap.t R 0) := 
-        let '((vs, es),c,s,t) := fn in
-        CPath fn f s t -> False.
-
-    (* Tagastab true, kui iga tipu u ja v korral, kus kaarel (u,v) on positiivne ülejääk, kehtib l(u) <= l(v) + 1 *)
+    (* Tagastab true, kui iga tipu u ja v korral,
+    kus kaarel (u,v) on läbilaskevõimet alles, kehtib l(u) <= l(v) + 1 *)
     Definition NoSteepArc (fn:FlowNet) (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O):=
         forall u v,
-        res_cap fn f u v > 0 -> (l[u] <= l[v]+1)%nat.
+        res_cap fn f u v > 0 -> (l[u]l <= l[v]l+1)%nat.
 
-    (* Tagastab true iga tipu u ja v korral kui on täidetud tingimus cf (u, v) > 0 ja tipud u ja v kuuluvad transpordivõrku *)
+    (* Tagastab true iga tipu u ja v korral kui on täidetud tingimus c u v - f(u,v) > 0
+    ja tipud u ja v kuuluvad transpordivõrku *)
     Definition ResCapNodes (fn:FlowNet) (f: @EdgeMap.t R 0) :=
             forall u v,
             res_cap fn f u v > 0 -> u ∈v (nodes fn) = true /\ v ∈v (nodes fn) = true.
 
-    (* Tagastab true, kui ei leidu tippu, kuhu saaks push sammu teha *)
-    Definition NoPushCondition fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u := 
-                forall v, v ∈v (nodes fn) = true -> (l[u] <> l[v] + 1)%nat.
-
-    (* minu lisatud definitsioon *)
-    (* Iga silmuse voog ja läbilaskevõime on 0. *)
-    Definition LoopFlowCapacity f c :=
-        forall u v, u = v -> EdgeMap.find 0 f (u,v) == 0 /\ c u v == 0.
-    
-    Local Close Scope VertexMap.
-
-    (* mitu mappi *)
-    
     (* Tagastab true, kui push sammu eeldused on täidetud, ehk tipus on ülejääk ja järgmise tipu kõrgus on 1 võrra väiksem. *)
-    Definition PushCondition (fn: FlowNet) (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) u v := 
-        ExcessMap.find 0 e u > 0 /\ (VertexMap.find 0 l u = VertexMap.find 0 l v + 1)%nat.
+    Definition PushCondition (fn: FlowNet) (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u v := 
+        excess fn f u > 0 /\ (l[u]l = l[v]l + 1)%nat.
     
     (* Kui tippudel olid korrektsed kõrgused enne push sammu, siis ka peale push sammu on tippudel korrektsed kõrgused *)
     Lemma PushValidLabel fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) x y:
         let '((vs, es),c,s,t) := fn in
-        ValidLabeling fn f l -> PushCondition fn f e l x y
+        ExcessCached fn f e ->
+        ValidLabeling fn f l -> PushCondition fn f l x y
                 -> ValidLabeling fn (fst (push fn f e x y)) l.
     Proof.
-        intros. destruct fn as [[[[vs es] c] s] t]. unfold ValidLabeling, PushCondition.
-        intros. unfold push in H1. destruct ((x, y) ∈e es) eqn : E.
-        + unfold PR.E in *. apply EdgeSet.in_filter in H1. destruct H1.  
+        intros. destruct fn as [[[[vs es] c] s] t]. unfold ValidLabeling, PushCondition, ExcessCached. 
+        intros Hex H H0 u v H1. unfold push in H1.
+        repeat rewrite <- Hex in H1. 
+        destruct ((x, y) ∈e es) eqn : E.
+        + unfold PR.E, fst in *. apply EdgeSet.in_filter in H1. destruct H1.  
         apply H. apply EdgeSet.filter_in.
         - auto.
         - destruct (Edge.equal (x,y) (u, v)).
-        * inversion e0. subst. simpl in H2. rewrite EdgeMap.FindUpdateEq in H2. 
+        * inversion e0. subst. rewrite EdgeMap.FindUpdateEq in H2. 
         eapply (reflect_iff _ _ (QLt_spec _ _)). 
         eapply (reflect_iff _ _ (QLt_spec _ _)) in H2.
         unfold res_cap in H2. rewrite E in H2.
-        destruct ( Q.min_dec (ExcessMap.find 0 e u) (c u v - EdgeMap.find  0 f (u, v))).
-        ** rewrite q in H2. lra.
-        ** rewrite q in H2. unfold R in H2. lra.
-        * simpl in H2. rewrite EdgeMap.FindUpdateNeq in H2; auto.
-        + unfold PR.E in *. apply EdgeSet.in_filter in H1. destruct H1.
+        destruct ( Q.min_dec (excess (vs, es, c, s, t) f u) (c u v - f[(u, v)]f)).
+        ** rewrite q in H2. rewrite Qred_correct in *. rewrite Hex in H2. destruct H0. rewrite Hex in H0. lra.
+        ** rewrite q in H2. unfold R in H2. 
+            rewrite Qred_correct in *. lra.
+        * rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        + unfold PR.E, fst in *. apply EdgeSet.in_filter in H1. destruct H1.
         destruct (Edge.equal (y, x) (u, v)).
         - inversion e0. subst. lia.
-        - simpl in H2. rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        - rewrite EdgeMap.FindUpdateNeq in H2; auto.
         apply H. apply EdgeSet.filter_in; auto.
         Qed.
 
-    Definition RelabelCondition fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) u := 
-      ExcessMap.find 0 e u > 0 /\ forall v, v ∈v (nodes fn) = true -> 
-      res_cap fn f u v > 0 -> (VertexMap.find 0 l u <= VertexMap.find 0 l v)%nat.
-
-
-    Lemma minProp: forall a b, (min a b = a /\ a <= b)%nat \/ 
-                                (min a b = b /\ b <= a)%nat.
-    Proof. lia. Qed. 
-
-    (* muudetud *)
-    Lemma RFindResCapCondition fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u vs : forall vs' v,
-        (VertexSet.filter (fun v0 : V => 0 <? res_cap fn f u v0) vs) = vs' ->
-        (v ∈v vs') = true ->  (0 <? res_cap fn f u v) = true .
-    Proof. 
-        intros vs' v Hfilt Hmem. subst vs'.
-        destruct (VertexSet.in_filter v 
-                    (fun v0 : V => 0 <? res_cap fn f u v0) vs Hmem)
-                    as [_ Hp]. apply Hp.
-        Qed. 
+    (* Tagastab true, kui tingimustest, et tipu u ülejääk on positiivne,
+        v on tipp ja kaarel (u,v) on veel läbilaskevõimet, järeldub, et
+        u kõrgus ei ole suurem v kõrgusest. *)
+    Definition RelabelCondition fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u := 
+      excess fn f u > 0 /\ forall v, v ∈v (nodes fn) = true -> 
+      res_cap fn f u v > 0 -> (l[u]l <= l[v]l)%nat.
 
     Lemma smallest_rank_In: forall l xs r v,
         smallest_rank l xs (Some r) = Some v -> In v (r::xs).
     Proof.
         intros l xs. induction xs; cbn; intros; auto.
         +   inv_clear H. tauto.
-        +   destruct (VertexMap.find 0 l r <=? VertexMap.find 0 l a)%nat.
+        +   destruct (l[r]l <=? l[a]l)%nat.
         ++  apply IHxs in H. cbn in H. tauto.
         ++  apply IHxs in H. cbn in H. tauto.   
     Qed.
 
     Lemma smaller_rank_leq: forall l xs v0 v v' ,
         smallest_rank l xs (Some v0) = Some v ->
-        (In v' xs \/ (VertexMap.find 0 l v0 <= VertexMap.find 0 l v')%nat) ->
-        (VertexMap.find 0 l v <= VertexMap.find 0 l v')%nat.
+        (In v' xs \/ (l[v0]l <= l[v']l)%nat) ->
+        (l[v]l <= l[v']l)%nat.
     Proof.
         intros l xs. induction xs; intros v0 v v' Hs H; cbn in *.
         +   inv_clear Hs. destruct H; auto. inv_clear H.
-        +  destruct (Nat.leb_spec0 (VertexMap.find 0 l v0)%nat (VertexMap.find 0 l a)%nat).
+        +  destruct (Nat.leb_spec0 (l[v0]l)%nat (l[a]l)%nat).
         ++  eapply IHxs with (v':=v')in Hs; auto.
             destruct H; try lia. 
             destruct H; subst; try lia.
@@ -1152,10 +1060,12 @@ Module PR
             tauto.
     Qed.
 
+    (* Kui relabel_find tipus u tagastab tipu v ja kaarel (u,v) on läbilaskevõimet,
+    siis iga tipp v', kus kaarel (u,v') on läbilaskevõimet, ei ole väiksema kõrgusega kui v. *)
     Lemma RFindCondition fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u vs: forall v, 
       relabel_find fn f l u vs = Some v  ->
       (0 <? res_cap fn f u v) = true /\ (forall v', (v' ∈v vs) = true 
-        -> (0 <? res_cap fn f u v') = true -> (VertexMap.find 0 l v <= VertexMap.find 0 l v')%nat).
+        -> (0 <? res_cap fn f u v') = true -> (l[v]l <= l[v']l)%nat).
     Proof.
         intros. unfold relabel_find in H. split.
         +   destruct (VertexSet.to_list (VertexSet.filter (fun v => 0<?res_cap fn f u v) vs)) eqn:E.
@@ -1176,14 +1086,15 @@ Module PR
             induction l0; intros v' H.
             *   cbn in H. inv_clear H. lia.
             *   cbn in H.
-                destruct ((VertexMap.find 0 l v' <=? VertexMap.find 0 l a)%nat) eqn:E.
+                destruct ((l[v']l <=? l[a]l)%nat) eqn:E.
             **  apply IHl0, H.
-            **  destruct (Nat.leb_spec0 (VertexMap.find 0 l v')%nat (VertexMap.find 0 l a)%nat);
+            **  destruct (Nat.leb_spec0 (l[v']l)%nat (l[a]l)%nat);
                 [inversion E|].
                 specialize (IHl0 _ H). lia.
         +++ eapply smaller_rank_leq; eauto.
     Qed.
 
+    (* relabel_find tagastab transpordivõrgus eksisteeriva tipu *)
     Lemma RFindMemCondition fn f (l: @VertexMap.t nat O) u vs: forall v, 
         relabel_find fn f l u vs = Some v ->
             (v ∈v vs) = true.
@@ -1198,11 +1109,12 @@ Module PR
           apply VertexSet.in_filter in H. tauto.
     Qed.
 
-    (* Kui enne relabel sammu olid tippudel korrektsed kõrgused, siis peale relabel sammu on samuti tippudel korrektsed kõrgused *)
-    Lemma RelabelValidLabel fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) x l':
+    (* Kui enne relabel sammu olid tippudel korrektsed kõrgused,
+    siis peale relabel sammu on samuti tippudel korrektsed kõrgused *)
+    Lemma RelabelValidLabel fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) x l':
         let '((vs, es),c,s,t) := fn in
         (forall u v , ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
-        ValidLabeling fn f l -> RelabelCondition fn f e l x 
+        ValidLabeling fn f l -> RelabelCondition fn f l x 
             -> relabel fn f l x = Some l' -> ValidLabeling fn f l'.
     Proof.
         intros. destruct fn as [[[[vs es] c] s] t]. unfold ValidLabeling, RelabelCondition.
@@ -1216,7 +1128,7 @@ Module PR
         destruct (equal x u); destruct (equal x v); subst.
         + erewrite -> VertexMap.FindReplaceEq. lia.
         + erewrite -> VertexMap.FindReplaceEq; erewrite -> VertexMap.FindReplaceNeq. 
-        - assert ((VertexMap.find 0 l v0) <= VertexMap.find 0 l v)%nat. { apply H5. + edestruct R; eauto. + unfold res_cap.
+        - assert ((l[v0]l) <= l[v]l)%nat. { apply H5. + edestruct R; eauto. + unfold res_cap.
         rewrite H1. eapply (reflect_iff _ _ (QLt_spec _ _)).
         eapply (reflect_iff _ _ (QLt_spec _ _)) in H2. lra.
         } lia.
@@ -1230,12 +1142,13 @@ Module PR
         + auto.
     Qed.
 
-    (* Kui tippudel on korrektsed kõrgused ning leidub aktiivseid tippe ja leidub tipp kuhu saab push sammu teha, siis järledub, et 
-    on täidetud push sammu eeldused. *)
-    Lemma FPNCondition fn f e l u vs': 
+    (* Kui tippudel on korrektsed kõrgused ning leidub aktiivseid tippe
+    ja leidub tipp kuhu saab push sammu teha, siis järeldub, et 
+    push sammu eeldused on täidetud. *)
+    Lemma FPNCondition fn f l u vs': 
         (u ∈v nodes fn) = true -> forall v, 
-        ValidLabeling fn f l -> ActiveNode fn f e u ->
-        find_push_node fn f l u vs' = Some v -> PushCondition fn f e l u v.
+        ValidLabeling fn f l -> ActiveNode fn f u ->
+        find_push_node fn f l u vs' = Some v -> PushCondition fn f l u v.
     Proof.
         unfold PushCondition, ValidLabeling, ActiveNode. intros. 
         destruct fn as [[[[vs es] c] s] t]. split.
@@ -1244,57 +1157,61 @@ Module PR
             apply VertexSet.find_first_specSome in H2.
             destruct H2. apply andb_true_iff in H2.
             destruct H2. 
-            destruct (Nat.eqb_spec (VertexMap.find 0%nat l u) (1 + VertexMap.find 0%nat l v)); [|inversion H2]. 
+            destruct (Nat.eqb_spec (l[u]l)%nat (1 + l[v]l)); [|inversion H2]. 
             lia.
     Qed.
 
+    Lemma map_fn A B (f:A->B) x xs : map f (x::xs) =  f x :: map f xs.
+    Proof. reflexivity. Qed.
+
+    (* Eeldusel, et kaar (s,v0) on erinev kaarest (u,v) iga v0 puhul, siis
+    pole vahet, kas suurendada kaare (u,v) voogu d võrra või mitte,
+    tipust s väljuvate kaarte voogude summa on sama. *)
     Lemma SumSame (f: @EdgeMap.t R 0) (s:V->V*V) vs u v d : 
         (forall v0,  In v0 vs -> s v0 <> (u, v)) ->
         map (fun v0 => EdgeMap.find 0 
-            (EdgeMap.update (u, v) (fun x0 => x0 + d) f) 
+            (EdgeMap.update (u, v) (fun x0 => Qred (x0 + d)) f) 
             (s v0)) vs = 
-        map (fun v0 => EdgeMap.find 0 f (s v0)) vs.
+        map (fun v0 => f[(s v0)]f) vs.
     Proof.
         induction vs; intros.
         + simpl. auto.
-        + simpl. erewrite IHvs; auto.
-        f_equal. clear IHvs. erewrite EdgeMap.FindUpdateNeq.
-        - auto.
-        - apply H. cbn. auto.
-        - intros. apply H. cbn. tauto.
+        +   do 2 rewrite map_fn.
+            erewrite IHvs.
+        ++  f_equal. erewrite EdgeMap.FindUpdateNeq; auto.
+            apply H. cbn. auto.
+        ++  intros. apply H. constructor 2. auto.
     Qed.
 
     (* Kui tipp x on aktiivne enne push-sammu tipust u tippu v, siis on tipp x aktiivne ka pärast seda. *)
     Lemma PushActiveCondition (fn:FlowNet) (f:EdgeMap.t R) (e:ExcessMap.t R) u v x: 
-        let (f',e') := push fn f e u v in
-        ActiveNode fn f e x -> x<>v -> x<>u -> ActiveNode fn f' e' x .
+        ActiveNode fn f x -> x<>v -> x<>u -> ActiveNode fn (fst (push fn f e u v)) x .
     Proof.
-        unfold ActiveNode. destruct fn as [[[[vs es] c] s] t]. intros.
-        unfold push. destruct ((u, v) ∈e es) eqn : E.
-        + intros. set (d := Qmin _ _). unfold excess_update. split. 
-            - apply H. 
-            - rewrite ExcessMap.FindReplaceNeq.
-                * rewrite ExcessMap.FindReplaceNeq.
-                    ** apply H.
-                    ** apply H1.
-                * apply H0.
-        +  set (d := Qmin _ _). unfold excess_update. unfold Qminus. intros. split.
-            - apply H.
-            - rewrite ExcessMap.FindReplaceNeq.
-                * rewrite ExcessMap.FindReplaceNeq.
-                    ** apply H.
-                    ** apply H1.
-                * apply H0.
+        unfold ActiveNode. destruct fn as [[[[vs es] c] s] t]. intros. destruct H. split; auto.
+            unfold push. destruct ((u, v) ∈e es) eqn : E.
+            + unfold excess, fst in *. 
+                set (d := Qmin _ _). 
+                rewrite Qred_correct in *. rewrite SumSame.
+            - rewrite SumSame.
+            * apply H2. 
+            * intros v0 _ q. inversion q. subst. apply H1. auto.
+            - intros v0 _ q. inversion q. subst. apply H0. auto. 
+            +  set (d := Qmin _ _). unfold excess, fst. unfold Qminus. rewrite SumSame.
+            - rewrite SumSame.
+            * apply H2.
+            * intros v0 _ q. inversion q. subst. apply H0. auto.
+            - intros v0 _ q. inversion q. subst. apply H1. auto. 
     Qed.
 
-    
-    Lemma DeltaPositive fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) u v:
+    (* Tipu u ülejääk ja kaare (u,v) alles olev läbilaskevõime on
+    mittenegatiivsed. *)
+    Lemma DeltaPositive fn (f: @EdgeMap.t R 0) (l: @VertexMap.t nat O) u v:
         let '((vs, es),c,s,t) := fn in
         (u ∈v vs) = true -> 
         FlowMapPositiveConstraint fn f ->
-        PreFlowCond fn f e -> 
-        PushCondition fn f e l u v ->
-        Qmin (ExcessMap.find 0 e u) (res_cap fn f u v) >= 0.
+        PreFlowCond fn f -> 
+        PushCondition fn f l u v ->
+        Qmin (excess fn f u) (res_cap fn f u v) >= 0.
         Proof.
             unfold FlowMapPositiveConstraint, PreFlowCond, PushCondition.
             destruct fn as [[[[vs es] c] s] t]. unfold CapacityConstraint, NonDeficientFlowConstraint.
@@ -1304,60 +1221,61 @@ Module PR
             + apply H0.
         Qed.
 
+    (* Eeldustel, et ülejäägid on õigesti salvestatud, voog ja läbilaskevõime on mittenegatiivsed,
+    eelvoo tingimused on täidetud ja push-sammu eeltingimused on täidetud, siis
+    on voog ja läbilaskevõime mittenegatiivsed ka pärast push-sammu. *)
     Lemma PushFlowMapPos fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) x y:
         let '((vs, es),c,s,t) := fn in
-        let (f', _) := push fn f e x y in
         (x ∈v vs) = true ->
+        ExcessCached fn f e ->
         FlowMapPositiveConstraint fn f -> 
-        PreFlowCond fn f e ->
-        PushCondition fn f e l x y ->
-        FlowMapPositiveConstraint fn f'.
+        PreFlowCond fn f ->
+        PushCondition fn f l x y ->
+        FlowMapPositiveConstraint fn (fst (push fn f e x y)).
     Proof.
         unfold FlowMapPositiveConstraint, PreFlowCond, PushCondition.
-        unfold CapacityConstraint, NonDeficientFlowConstraint.
-        destruct fn as [[[[vs es] c] s] t]. unfold push.
-        destruct ((x, y) ∈e es) eqn : E. intros.
-        + simpl. destruct (Edge.equal (u,v) (x,y)).
-            - inv_clear e0. rewrite EdgeMap.FindUpdateEq. rewrite E. 
-            eapply (DeltaPositive ((vs,es),c,s,t) f e l x y) in H1. unfold res_cap in H1. 
-            rewrite E in H1. specialize (H0 x y). destruct H2. destruct H0. apply Qlt_le_weak in H2. split.
-                * apply (Qplus_le_compat 0 _ 0 _). apply H0. apply H1.
-                * apply H4.
-                * apply H.
-                * unfold FlowMapPositiveConstraint. apply H0. 
-                * unfold PushCondition. apply H2.
-            - rewrite EdgeMap.FindUpdateNeq. apply H0. apply n.
-        + intros. destruct (Edge.equal (u,v) (y,x)).
-            - inv_clear e0. rewrite EdgeMap.FindUpdateEq. unfold res_cap.
-                rewrite E. edestruct (Q.min_spec_le (ExcessMap.find 0 e x) (EdgeMap.find 0 f (y, x))); 
-                destruct H3. 
-                * erewrite H4. split.
-                    ** unfold R in *. lra.
-                    ** apply H0.
-                * erewrite H4. split.
-                    ** unfold R in *. lra.
-                    ** apply H0.
-                    
-            - rewrite EdgeMap.FindUpdateNeq. apply H0. apply n.
+        unfold CapacityConstraint, NonDeficientFlowConstraint, ExcessCached.
+        destruct fn as [[[[vs es] c] s] t]. 
+        intros H Hex H0 H1 H2 u v. split.
+        + unfold push. repeat rewrite <- Hex.
+         destruct ((x, y) ∈e es) eqn : E.
+        - destruct (Edge.equal (x,y) (u,v)).
+        * inv_clear e0. unfold fst. rewrite EdgeMap.FindUpdateEq.
+        eapply (DeltaPositive ((vs, es),c,s,t) f l u v) in H; auto.
+        specialize (H0 u v). rewrite Qred_correct. lra.
+        * unfold fst. rewrite EdgeMap.FindUpdateNeq; auto.
+        apply H0.
+        - destruct (Edge.equal (y,x) (u,v)).
+        * inv_clear e0. unfold fst. rewrite EdgeMap.FindUpdateEq.
+        unfold res_cap. rewrite E. edestruct (Q.min_spec_le); destruct H3.
+        ** erewrite H4. unfold R in *. rewrite Qred_correct. lra.
+        ** erewrite H4. unfold R in *. rewrite Qred_correct. lra.
+        * unfold fst. rewrite EdgeMap.FindUpdateNeq; auto.
+            apply H0.
+            + apply H0.
     Qed.   
+
+    Lemma QSumListFn x xs: QSumList (x::xs) = x + QSumList xs.
+    Proof. reflexivity. Qed.
 
     Lemma SumInR (f: @EdgeMap.t R 0 ) vs u v d : 
         Distinct vs ->
         In u vs ->
         QSumList (
             map (fun v0 => EdgeMap.find 0
-                  (EdgeMap.update (u, v) (fun x0 => x0 + d) f) 
+                  (EdgeMap.update (u, v) (fun x0 => Qred (x0 + d)) f) 
                   (v0, v)) vs) == 
-        QSumList (map (fun v0 => EdgeMap.find 0 f (v0, v)) vs) + d.
+        QSumList (map (fun v0 => f[(v0, v)]f) vs) + d.
     Proof. 
-        induction vs; intros.
+         induction vs; intros.
         + simpl. inversion H0.
-        + simpl. destruct (equal u a).
+        + do 2 rewrite map_fn. destruct (equal u a).
         - subst. rewrite EdgeMap.FindUpdateEq. erewrite SumSame.
-        * unfold R in *. lra.
+        *   do 2 rewrite QSumListFn.
+            unfold R in *. rewrite Qred_correct. lra.
         * intros. intro C. inv_clear C. inv_clear H. tauto. 
         - rewrite EdgeMap.FindUpdateNeq.
-        * erewrite IHvs.
+        * do 2 rewrite QSumListFn. erewrite IHvs.
         ** lra.
         ** inversion H. auto.
         **  simpl in H0.
@@ -1370,71 +1288,149 @@ Module PR
         In v vs ->
         QSumList (
             map (fun v0 => EdgeMap.find 0 
-                  (EdgeMap.update (u, v) (fun x0 => x0 + d) f) 
+                  (EdgeMap.update (u, v) (fun x0 => Qred (x0 + d)) f) 
                   (u,v0)) vs) == 
-        QSumList (map (fun v0 => EdgeMap.find 0 f (u,v0)) vs) + d.
+        QSumList (map (fun v0 =>
+        f[(u, v0)]f) vs) + d.
     Proof.
         induction vs; intros.
         + simpl. inversion H0.
-        + simpl. destruct (equal v a).
+        + do 2 rewrite map_fn. destruct (equal v a).
         - subst. rewrite EdgeMap.FindUpdateEq. erewrite SumSame.
-        * unfold R in *. lra.
-        * intros. intro C. inv_clear C. inv_clear H. tauto.
+        *   do 2 rewrite QSumListFn.
+            unfold R in *. rewrite Qred_correct. lra.
+        * intros. intro C. inv_clear C. inv_clear H. tauto. 
         - rewrite EdgeMap.FindUpdateNeq.
-        * erewrite IHvs.
+        * do 2 rewrite QSumListFn. erewrite IHvs.
         ** lra.
-        ** inversion H. subst. auto.
-        ** simpl in H0. destruct H0; subst; try tauto.
+        ** inversion H. auto.
+        **  simpl in H0.
+            destruct H0; subst; try tauto.
         * intro C. inv_clear C. apply n. reflexivity.
+    Qed.
+
+    Lemma SumNoUpdateL: forall f vs v t c s, s <> v ->
+        QSumList (map (fun v0 : V =>
+        EdgeMap.find 0 (EdgeMap.update (v, t) c f) (s,v0)) vs) =
+        QSumList (map (fun v0 : V => f[(s, v0)]f) vs).
+    Proof.
+        intros f vs. induction vs; intros; cbn; auto.
+        assert ((s, a) <> (v, t)). { 
+            intro q. inv_clear q. tauto. 
+        }
+        rewrite EdgeMap.FindUpdateNeq; auto.
+        eapply (IHvs v t c) in H. rewrite H. 
+        reflexivity.
+    Qed.
+
+    Lemma SumNoUpdateR: forall f vs v t c s, t <> v ->
+        QSumList (map (fun v0 : V =>
+        EdgeMap.find 0 (EdgeMap.update (s, v) c f) (v0, t)) vs) =
+        QSumList (map (fun v0 : V => f[(v0, t)]f) vs).
+    Proof.
+        intros f vs. induction vs; intros; cbn; auto.
+        assert ((a, t) <> (s, v)). { 
+            intro q. inv_clear q. tauto. 
+        }
+        rewrite EdgeMap.FindUpdateNeq; auto.
+        eapply (IHvs v t c) in H. rewrite H. 
+        reflexivity.
     Qed.
 
     (* Kui on rahuldatud eelvoo tingimused ning vood ja läbilaskevõimed on mittenegatiivsed 
     ja leidub tipp, kuhu saab push sammu teha, siis järeldub, et ka peale push sammu on eelvoo tingimused säilitatud *)
-    Lemma PushPreFlow fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) u v:
+    Lemma PushPreFlow fn (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) x y:
         let '((vs, es),c,s,t) := fn in
-        let (f',e') := push fn f e u v in
-        (u ∈v vs) = true ->
-        (v ∈v vs) = true ->
-        PreFlowCond fn f e -> 
+        (x ∈v vs) = true ->
+        (y ∈v vs) = true ->
+        ExcessCached fn f e ->
+        PreFlowCond fn f -> 
         FlowMapPositiveConstraint fn f ->
-        PushCondition fn f e l u v ->
-        PreFlowCond fn f' e'.
+        PushCondition fn f l x y ->
+        PreFlowCond fn (fst (push fn f e x y)).
     Proof. 
-        unfold PreFlowCond, FlowMapPositiveConstraint, PushCondition, PreFlowCond.
+        unfold PreFlowCond, FlowMapPositiveConstraint, PushCondition, PreFlowCond, ExcessCached.
         unfold CapacityConstraint, NonDeficientFlowConstraint.
-        destruct fn as [[[[vs es] c] s] t]. unfold push. 
-        destruct ((u, v) ∈e es) eqn:E; intros Hxvs Hyvs [Hcc Hndf] Hfmp Hpc; split; intros;
-        unfold res_cap.
-        + edestruct (Edge.equal (u,v) (u0,v0)).
-            - inv_clear e0. rewrite H. rewrite EdgeMap.FindUpdateEq.
-                edestruct (Q.min_spec_le); destruct H0; erewrite H1; unfold R in *; lra.
-            - rewrite EdgeMap.FindUpdateNeq; auto.
-        + unfold excess_update. rewrite E. edestruct (equal v v0).
-            - inv_clear e0. rewrite ExcessMap.FindReplaceEq. edestruct (Q.min_spec_le);
-            destruct H2; erewrite H3; unfold R in *; apply Hndf in H0; auto.
-                * lra.
-                * apply (Qplus_le_compat 0 _ 0 _); auto. apply Hcc in E. lra.
-            - rewrite ExcessMap.FindReplaceNeq; auto. destruct (equal u v0).
-                * inv_clear e0. rewrite ExcessMap.FindReplaceEq. 
-                edestruct (Q.min_spec_le); destruct H2; rewrite H3. lra. lra.
-                * rewrite ExcessMap.FindReplaceNeq; auto.
-        + rewrite E. edestruct (Edge.equal (u0,v0) (v,u)). 
-            - inv_clear e0. rewrite EdgeMap.FindUpdateEq. 
-            edestruct (Q.min_spec_le); destruct H0; rewrite H1;
-            specialize (Hcc v u); apply Hcc in H. 
-                * lra.
-                * unfold Qminus. rewrite Qplus_opp_r. apply Hfmp.
-            - rewrite EdgeMap.FindUpdateNeq; auto.
-        + rewrite E. unfold excess_update. edestruct (equal v0 v). 
-            - inv_clear e0. rewrite ExcessMap.FindReplaceEq. edestruct (Q.min_spec_le);
-            destruct H2; erewrite H3; unfold R in *; apply Hndf in H0; edestruct ((v, u) ∈e es) eqn:E';
-            specialize (Hfmp v u); auto; lra.
-            - rewrite ExcessMap.FindReplaceNeq; auto. edestruct (equal v0 u).
-                * inv_clear e0. rewrite ExcessMap.FindReplaceEq. edestruct (Q.min_spec_le);
-                destruct H2. rewrite H3. lra. lra.
-                * rewrite ExcessMap.FindReplaceNeq; auto.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hxvs Hyvs Hex [Hcc Hndf] Hfmp Hpc.
+        split.
+        + intros. unfold push.
+        repeat rewrite <- Hex. destruct ((x, y) ∈e es) eqn : E.
+        - destruct (Edge.equal (x,y) (u,v)). 
+        * inv_clear e0. unfold fst. rewrite EdgeMap.FindUpdateEq. unfold res_cap.
+        rewrite E. edestruct (Q.min_spec_le); destruct H0.
+        ** erewrite H1. unfold R in *. rewrite Qred_correct. lra.
+        ** erewrite H1. unfold R in *. rewrite Qred_correct. lra.
+        * unfold fst. rewrite EdgeMap.FindUpdateNeq; auto.
+        - unfold res_cap. rewrite E. destruct (Edge.equal (y,x) (u,v)).
+        * inv_clear e0. unfold fst. rewrite EdgeMap.FindUpdateEq. edestruct (Q.min_spec_le); destruct H0.
+        ** erewrite H1. specialize (Hcc _ _ H). 
+            rewrite Qred_correct. lra.
+        ** rewrite H1. specialize (Hfmp u v). unfold R in *. 
+            rewrite Qred_correct. lra.
+        * unfold fst. rewrite EdgeMap.FindUpdateNeq; auto.
+        +   intros. 
+            pose proof (L1:=VertexSet.to_list_distinct vs).
+            apply VertexSet.to_list_in in H as L2.
+            apply VertexSet.to_list_in in Hxvs as L3.
+            apply VertexSet.to_list_in in Hyvs as L4.
+            eapply (DeltaPositive ((vs, es),c,s,t)) in Hpc as HDp; auto;
+            unfold PreFlowCond, CapacityConstraint, NonDeficientFlowConstraint; auto.
+            unfold push, res_cap in *. 
+            repeat rewrite <- Hex.
+            destruct ((x, y) ∈e es) eqn : E.
+        -   unfold excess at 1. destruct (equal v y). 
+        * subst. destruct (equal x y).
+        ** subst. unfold fst.
+            rewrite SumInR; auto.
+            rewrite SumInL; auto. destruct Hpc. unfold excess in H1.
+            unfold R in *. rewrite Qred_correct in *. lra.
+        ** unfold fst. rewrite SumInR; auto. 
+        rewrite SumSame.
+        **** specialize (Hndf y H H0). unfold excess in Hndf.
+         unfold R in *. rewrite Qred_correct in *. lra.
+         **** intros. intro C. inv_clear C. apply n. reflexivity.
+         * unfold excess in Hpc. destruct (equal x v). 
+         ** subst. unfold fst. rewrite SumSame. 
+         *** erewrite SumInL; auto.
+          edestruct (Q.min_spec_le); destruct H1.
+         **** erewrite H2 in *. unfold excess. unfold R in *. 
+              repeat rewrite Qred_correct in *. lra.
+         **** erewrite H2 in *. unfold excess in H1. unfold R in *. 
+            rewrite Qred_correct in *. lra.
+         *** intros. intro C. inv_clear C. apply n. reflexivity.
+         ** unfold fst. rewrite SumSame, SumSame.
+         *** apply Hndf in H; auto.
+         *** intros. intro C. inv_clear C. apply n0. reflexivity.
+         *** intros. intro C. inv_clear C. apply n. reflexivity.  
+         - unfold excess. unfold Qminus. destruct (equal v x).
+         * subst. destruct (equal x y).
+         ** subst. unfold fst. erewrite SumInL; auto.
+         erewrite SumInR; auto.
+         unfold excess in Hpc. unfold R in *. 
+         rewrite Qred_correct in *. lra.
+         ** unfold fst. erewrite SumInR; auto.
+         erewrite SumSame.
+         *** unfold excess in Hpc, HDp. rewrite Qred_correct in *.
+         edestruct (Q.min_spec_le); destruct H1.
+         **** erewrite H2 in *. unfold R in *. rewrite Qred_correct in *. lra.
+         **** erewrite H2 in *. unfold R in *. rewrite Qred_correct in *. lra.
+         *** intros. intro C. inv_clear C. apply n. reflexivity.
+         * destruct (equal v y).
+         ** subst. unfold fst. erewrite SumInL; auto.
+         rewrite SumSame.
+         *** apply Hndf in H; auto.
+         unfold excess in H.
+         rewrite Qred_correct in *.
+         unfold excess, Qminus in HDp. unfold R in *. lra.
+        *** intros. intro C. inv_clear C. apply n. reflexivity.
+        ** unfold fst. erewrite SumSame, SumSame.
+        *** apply Hndf in H; auto.
+        *** intros. intro C. inv_clear C. apply n0. reflexivity.
+        *** intros. intro C. inv_clear C. apply n. reflexivity.
     Qed.
 
+    (* find_push_node tagastab alati transpordivõrgus eksisteeriva tipu *)
     Lemma FPNinVs fn f l u v vs': 
     find_push_node fn f l u vs' = Some v -> (v ∈v vs') = true.
     Proof.
@@ -1443,8 +1439,10 @@ Module PR
         auto.
     Qed.
 
+    (* has_excess_not_sink tagastab true vaid siis, kui selle argumendiks antud tipu
+    ülejääk on positiivne, see pole lähte- ega sihttipp. *)
     Lemma HENSCondition fn v :forall (f: @EdgeMap.t R 0) (e:ExcessMap.t R),
-        has_excess_not_sink fn e v = true -> 0 < ExcessMap.find 0 e v /\ v <> sink fn /\ v <> source fn.
+        has_excess_not_sink fn e v = true -> 0 < e[v]e /\ v <> sink fn /\ v <> source fn.
     Proof.
         unfold has_excess_not_sink. destruct fn as [[[[vs es] c] s] t].
         intros. destruct (equal v t), (equal v s)  in H. subst.
@@ -1458,50 +1456,72 @@ Module PR
         - inversion H. 
     Qed.
 
+    (* Eeldusel, et u ja v on tipud ning x on neist erinev, ülejäägid on õigesti salvestatud,
+    eelvoo tingimused on täidetud, voog ja läbilaskevõime on mittenegatiivsed,
+    push-sammu tingimused on täidetud ja x on aktiivne tipp pärast push(u,v)-sammu, 
+    siis x oli aktiivne tipp ka enne push-sammu. *)
     Lemma PushActiveInv (fn:FlowNet) (f:EdgeMap.t R) (e:ExcessMap.t R) (l: @VertexMap.t nat O) u v x:
-        let (f',e') := push fn f e u v in
         u ∈v nodes fn = true ->
         v ∈v nodes fn = true ->
         x<>v ->
-        PreFlowCond fn f e ->
+        ExcessCached fn f e ->
+        PreFlowCond fn f ->
         FlowMapPositiveConstraint fn f ->
-        PushCondition fn f e l u v ->
-        ActiveNode fn f' e' x ->
-        ActiveNode fn f e x.
+        PushCondition fn f l u v ->
+        ActiveNode fn (fst (push fn f e u v)) x ->
+        ActiveNode fn f x.
     Proof.
         unfold ActiveNode, push, PreFlowCond, 
-        FlowConservationConstraint, PushCondition.
+        FlowConservationConstraint, PushCondition, ExcessCached.
         destruct fn as [[[[vs es] c] s] t].
-        destruct ((u, v) ∈e es) eqn:E0; unfold CapacityConstraint, 
-        NonDeficientFlowConstraint, FlowMapPositiveConstraint, excess_update in *; 
-        intros; cbn in H, H0; simpl in H5.
-        + split; rewrite E0 in H5; rewrite ExcessMap.FindReplaceNeq in H5; destruct H5; auto. 
-        destruct (equal x u).
-            - inv_clear e0. lra.
-            - rewrite ExcessMap.FindReplaceNeq in H6; auto.
-        + split.
-            - apply H5.
-            - destruct (equal x u).
-                * inv_clear e0. apply H4.
-                * rewrite ExcessMap.FindReplaceNeq in H5; auto. rewrite ExcessMap.FindReplaceNeq in H5.
-                destruct H5. lra. apply n.
+        pose proof (H:= True).
+        intros H0 H1 H2 Hex H3 H4 H5 H6.
+        repeat rewrite <- Hex in H6.
+        cbn in H0, H1.
+        pose proof (L1:=VertexSet.to_list_distinct vs).
+        apply VertexSet.to_list_in in H0 as L2.
+        apply VertexSet.to_list_in in H1 as L3.
+        destruct ((u, v) ∈e es) eqn:E0.
+        + destruct H6. split; auto. 
+        unfold excess in *.
+        destruct (equal x u) in H7.
+        -   subst. unfold fst in H7. 
+            erewrite SumSame, SumInL in H7; auto.
+        * unfold R in *. lra.
+        * intros. intro C. inv_clear C. apply H2. reflexivity.
+        - unfold fst in H7. erewrite SumSame, SumSame in H7.
+        * unfold R in *. lra.
+        * intros. intro C. inv_clear C. apply n. reflexivity.
+        * intros. intro C. inv_clear C. apply H2. reflexivity.
+        + destruct H6. split; auto. 
+        unfold excess in *. unfold Qminus in *. set (d:= Qmin _ _) in *.
+        destruct (equal x u) in H7.
+        - subst. unfold fst in H7.  erewrite SumInR, SumSame in H7; auto.
+        * unfold R in *. lra.
+        * intros. intro C. inv_clear C. apply H2. reflexivity.
+        - unfold fst in H7. erewrite SumSame, SumSame in H7; auto.
+        * intros. intro C. inv_clear C. apply H2. reflexivity.
+        * intros. intro C. inv_clear C. apply n. reflexivity.
     Qed.
     
+    (* kui find_push_node ei leia tippu, kuhu tipust u voogu suunata, siis 
+    on iga tipust u väljuva kaare läbilaskevõime ära kasutatud või ei leidu
+    tipu u kõrgusest ühe võrra madalamat naabertippu. *)
     Lemma FPNConditionNone fn f l u vs': 
         find_push_node fn f l u vs' = None -> 
         forall v, v ∈v vs' = true -> (0 <? res_cap fn f u v = false) 
-        \/ (VertexMap.find 0 l u <> VertexMap.find 0 l v + 1)%nat.
+        \/ (l[u]l <> l[v]l + 1)%nat.
     Proof.
         destruct fn as [[[[vs es] c] s] t].
         intros H v Hvs. 
         unfold find_push_node in H.
         eapply VertexSet.find_first_specNone in H; eauto.
         apply andb_false_iff in H. destruct H; try tauto.
-        destruct (Nat.eqb_spec (VertexMap.find 0%nat l u) (1 + VertexMap.find 0%nat l v)); lia.
+        destruct (Nat.eqb_spec (l[u]l)%nat (1 + l[v]l)); lia.
     Qed. 
 
     Lemma HENSConditionFalse fn v :forall (f: @EdgeMap.t R 0) (e:ExcessMap.t R),
-        has_excess_not_sink fn e v = false -> 0 >= ExcessMap.find 0 e v \/ v = sink fn \/ v = source fn.
+        has_excess_not_sink fn e v = false -> 0 >= e[v]e \/ v = sink fn \/ v = source fn.
     Proof.
         unfold has_excess_not_sink.
         intros. destruct fn as [[[[vs es] c] s] t].
@@ -1513,12 +1533,13 @@ Module PR
         - simpl. apply QLt_false in E1. tauto.
     Qed.
 
+    (* Pärast push-sammu ei teki kaari (u,v), 
+    kus u on kõrgemal kui l(v)+1 ja (u,v) läbilaskevõime pole ära kasutatud. *)
     Lemma PushNoSteepArc fn f e l x y:
-        (* let (f',e') := push fn f e x y in *)
         (x ∈v nodes fn) = true -> 
         FlowMapPositiveConstraint fn f ->
-        PreFlowCond fn f e -> 
-        PushCondition fn f e l x y ->
+        PreFlowCond fn f -> 
+        PushCondition fn f l x y ->
         NoSteepArc fn f l -> NoSteepArc fn (fst (push fn f e x y)) l.
     Proof. 
         unfold FlowMapPositiveConstraint, PreFlowCond, PushCondition,
@@ -1545,34 +1566,458 @@ Module PR
         apply H3. unfold res_cap. rewrite E2. auto.
     Qed.
 
+    (* Kui enne push-sammu kehtib c x y >= f(x,y),
+    siis kehtib see ka pärast push-sammu. *)
     Lemma PushResCapNodes fn f e x y:
-        let (f',_) := push fn f e x y in    
         x ∈v (nodes fn) = true -> y ∈v (nodes fn) = true ->
-        ResCapNodes fn f -> ResCapNodes fn f'.
+        ExcessCached fn f e ->
+        ResCapNodes fn f -> ResCapNodes fn (fst (push fn f e x y)).
     Proof.
-        unfold ResCapNodes.
-        intros. unfold push. destruct fn as [[[[vs es] c] s] t].
-        set (d:= Qmin _ _). destruct ((x, y) ∈e es) eqn : E; intros.
-            + unfold res_cap in *. destruct ((u, v) ∈e es) eqn : E2.
-                - destruct (Edge.equal (u, v) (x, y)).
-                    * inv_clear e0. tauto.
-                    * rewrite EdgeMap.FindUpdateNeq in H2; auto.
-                    apply H1. unfold res_cap. rewrite E2. auto.
-                -  destruct (Edge.equal (v, u) (x, y)).
-                    * inv_clear e0. tauto.
-                    * rewrite EdgeMap.FindUpdateNeq in H2; auto.
-                    apply H1. unfold res_cap. rewrite E2. auto.
-            + unfold res_cap in H2. simpl in H2. destruct ((u, v) ∈e es) eqn : E2.
-                - destruct (Edge.equal (u, v) (y, x)).
-                    * inv_clear e0. tauto.
-                    * rewrite EdgeMap.FindUpdateNeq in H2; auto.
-                    apply H1. unfold res_cap. rewrite E2. auto.
-                - destruct (Edge.equal (v, u) (y, x)).
-                    * inv_clear e0. tauto.
-                    * rewrite EdgeMap.FindUpdateNeq in H2; auto.
-                    apply H1. unfold res_cap. rewrite E2. auto.
+        unfold ResCapNodes, ExcessCached.
+        intros H H0 Hex H1 u v H2. 
+        unfold push, fst in H2. destruct fn as [[[[vs es] c] s] t].
+        repeat rewrite <- Hex in H2.
+        set (d:= Qmin _ _) in H2. destruct ((x, y) ∈e es) eqn : E.
+        + unfold res_cap in H2. destruct ((u, v) ∈e es) eqn : E2.
+        - destruct (Edge.equal (u, v) (x, y)).
+        * inv_clear e0. tauto.
+        * rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        apply H1. unfold res_cap. rewrite E2. auto.
+        -  destruct (Edge.equal (v, u) (x, y)).
+        * inv_clear e0. tauto.
+        * rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        apply H1. unfold res_cap. rewrite E2. auto.
+        + unfold res_cap in H2. destruct ((u, v) ∈e es) eqn : E2.
+        - destruct (Edge.equal (u, v) (y, x)).
+        * inv_clear e0. tauto.
+        * rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        apply H1. unfold res_cap. rewrite E2. auto.
+        - destruct (Edge.equal (v, u) (y, x)).
+        * inv_clear e0. tauto.
+        * rewrite EdgeMap.FindUpdateNeq in H2; auto.
+        apply H1. unfold res_cap. rewrite E2. auto.
+    Qed.
+
+    Definition excess_loop f u xs := 
+        QSumList (map (fun v => f[(v, u)]f) xs) -
+            QSumList (map (fun v => f[(u, v)]f) xs) .
+
+    (* Kui silmuse voogu suurendada, siis ei muutu tippu
+    sisenevate ja väljuvate kaarte voogude summade vahe. *)
+    Lemma PushExcessCycle f xs x d z:
+        excess_loop (EdgeMap.update (x,x) (fun x=> Qred (x+d)) f) z xs == excess_loop f z xs .
+    Proof.
+        destruct (equal x z); subst.
+        +   unfold excess_loop.
+            induction xs.
+        ++  cbn. lra.
+        ++  repeat rewrite map_fn.
+            repeat rewrite QSumListFn. 
+            destruct (equal a z); subst.
+        +++ repeat rewrite EdgeMap.FindUpdateEq. lra.  
+        +++ rewrite EdgeMap.FindUpdateNeq; [|intro C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq; [|intro C; inv_clear C; contradiction].
+            lra.
+        +   unfold excess_loop.
+            induction xs.
+        ++  cbn. lra.
+        ++  repeat rewrite map_fn.
+            repeat rewrite QSumListFn. 
+            rewrite EdgeMap.FindUpdateNeq; [|intro C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq; [|intro C; inv_clear C; contradiction].
+            lra.
+    Qed.
+
+    (* Pärast push sammu on pushi teise tipu ülejääk delta võrra suurem. *)
+    Lemma PushExcessIn f xs x y d:
+        x<>y ->
+        Distinct xs ->
+        (In x xs /\ excess_loop (EdgeMap.update (x,y) (fun x=> Qred (x+d)) f) y xs == excess_loop f y xs + d) \/
+        (~In x xs /\ excess_loop (EdgeMap.update (x,y) (fun x=> Qred (x+d)) f) y xs == excess_loop f y xs) .
+    Proof.
+        intros Hxy Hd.
+        unfold excess_loop.
+        induction xs.
+        +   right. split; auto. cbn. lra.
+        +   cbn in Hd. destruct Hd as [Hd1 Hd2].
+            specialize (IHxs Hd2). 
+            destruct IHxs as [[Hx IH]|[Hnx IH]].
+        ++  destruct (equal a x); subst; try contradiction.
+            left. split; [cbn; auto|].
+            do 4 rewrite map_fn, QSumListFn.
+            destruct (equal a y); subst.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+            lra.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+            lra.
+        ++  destruct (equal x a); subst.
+        +++ left. split; [cbn;auto|].
+            do 4 (rewrite map_fn; rewrite QSumListFn).
+            repeat rewrite EdgeMap.FindUpdateEq.
+            repeat rewrite EdgeMap.FindUpdateNeq; 
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+            set (r6 := EdgeMap.find _ _ _) in IH |- *.
+            rewrite Qred_correct.    
+            lra.
+        +++ destruct (equal y a); subst.
+            *   right. split; [intros C; inv_clear C; contradiction|].
+                do 4 (rewrite map_fn; rewrite QSumListFn).
+                repeat rewrite EdgeMap.FindUpdateEq.
+                rewrite EdgeMap.FindUpdateNeq; 
+                [|intros C; inv_clear C; contradiction].
+                set (r1 := QSumList _) in IH |- *.
+                set (r2 := QSumList _) in IH |- *.
+                set (r3 := QSumList _) in IH |- *.
+                set (r4 := QSumList _) in IH |- *.
+                set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+                lra.
+            *   right. split; [intros C; inv_clear C; contradiction|].
+                do 4 (rewrite map_fn; rewrite QSumListFn).
+                repeat rewrite EdgeMap.FindUpdateEq.
+                repeat (rewrite EdgeMap.FindUpdateNeq; 
+                [|intros C; inv_clear C; contradiction]).
+                set (r1 := QSumList _) in IH |- *.
+                set (r2 := QSumList _) in IH |- *.
+                set (r3 := QSumList _) in IH |- *.
+                set (r4 := QSumList _) in IH |- *.
+                set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+                lra.
+    Qed.
+
+    (* Pärast push sammu on pushi esimese tipu ülejääk delta võrra väiksem. *)
+    Lemma PushExcessOut f xs x y d:
+        x<>y ->
+        Distinct xs ->
+        (In y xs /\ excess_loop (EdgeMap.update (x,y) (fun x=> Qred (x+d)) f) x xs == excess_loop f x xs - d) \/
+        (~In y xs /\ excess_loop (EdgeMap.update (x,y) (fun x=> Qred (x+d)) f) x xs == excess_loop f x xs ) .
+    Proof.
+        intros Hxy Hd.
+        unfold excess_loop.
+        induction xs.
+        +   right. split; auto. cbn. lra.
+        +   cbn in Hd. destruct Hd as [Hd1 Hd2].
+            specialize (IHxs Hd2). 
+            destruct IHxs as [[Hx IH]|[Hnx IH]].
+        ++  destruct (equal a y); subst; try contradiction.
+            left. split; [cbn; auto|].
+            do 4 rewrite map_fn, QSumListFn.
+            destruct (equal a x); subst.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.                           
+            lra.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+            lra.
+        ++  destruct (equal y a); subst.
+        +++ left. split; [cbn;auto|].
+            do 4 (rewrite map_fn; rewrite QSumListFn).
+            repeat rewrite EdgeMap.FindUpdateEq.
+            repeat rewrite EdgeMap.FindUpdateNeq; 
+            [|intros C; inv_clear C; contradiction].
+            set (r1 := QSumList _) in IH |- *.
+            set (r2 := QSumList _) in IH |- *.
+            set (r3 := QSumList _) in IH |- *.
+            set (r4 := QSumList _) in IH |- *.
+            set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+            set (r6 := EdgeMap.find _ _ _) in IH |- *.
+            rewrite Qred_correct.     
+            lra.
+        +++ destruct (equal x a); subst.
+            *   right. split; [intros C; inv_clear C; contradiction|].
+                do 4 (rewrite map_fn; rewrite QSumListFn).
+                repeat rewrite EdgeMap.FindUpdateEq.
+                rewrite EdgeMap.FindUpdateNeq; 
+                [|intros C; inv_clear C; contradiction].
+                set (r1 := QSumList _) in IH |- *.
+                set (r2 := QSumList _) in IH |- *.
+                set (r3 := QSumList _) in IH |- *.
+                set (r4 := QSumList _) in IH |- *.
+                set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+                lra.
+            *   right. split; [intros C; inv_clear C; contradiction|].
+                do 4 (rewrite map_fn; rewrite QSumListFn).
+                repeat rewrite EdgeMap.FindUpdateEq.
+                repeat (rewrite EdgeMap.FindUpdateNeq; 
+                [|intros C; inv_clear C; contradiction]).
+                set (r1 := QSumList _) in IH |- *.
+                set (r2 := QSumList _) in IH |- *.
+                set (r3 := QSumList _) in IH |- *.
+                set (r4 := QSumList _) in IH |- *.
+                set (r5 := EdgeMap.find _ _ _) in IH |- *.            
+                lra.
+    Qed.
+
+    (* Kui mingi kaare voogu suurendatakse, siis see ei mõjuta tippu,
+    mis pole selle kaare üks otstippudest. *)
+    Lemma PushExcessOther f xs x y z d:
+        x<>y -> z<>x -> z<>y ->
+        Distinct xs ->
+        excess_loop (EdgeMap.update (x,y) (fun x=> Qred (x+d)) f) z xs == excess_loop f z xs .
+    Proof.
+        intros Hxy Hxz Hyz Hd.
+        unfold excess_loop.
+        induction xs.
+        +   cbn. lra.
+        +   cbn in Hd. destruct Hd as [Hd1 Hd2].
+            specialize (IHxs Hd2).
+            do 4 rewrite map_fn, QSumListFn.
+            destruct (equal a x); subst.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            lra.
+        +++ rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            rewrite EdgeMap.FindUpdateNeq;
+            [|intros C; inv_clear C; contradiction].
+            lra.
+    Qed.
+
+    Definition ExcessCacheNormal e:= forall v,
+        ExcessMap.find (Qred 0) e v = Qred (ExcessMap.find (Qred 0) e v).
+
+    (* Kui ülejäägid on õigesti salvestatud, siis on need õigesti salvestatud ka pärast järgmiste
+    tegevuste tegemist:
+    1) suurendatakse kaare (x,y) voogu d võrra;
+    2) ülejääkide andmestruktuuris suurendatakse tipu y ülejääki d võrra;
+    3) ülejääkide andmestruktuurid vähendatakse tipu x ülejääki d võrra. *)
+    Lemma ExcessCachedNe fn f e x y d:
+        x<>y ->
+        x ∈v nodes fn = true ->
+        y ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        ExcessCached fn 
+            (EdgeMap.update (x, y) (fun x0 : Q => Qred (x0 + d)) f)
+            (ExcessMap.update y (fun x0 : Q => Qred (x0 + d)) 
+                (ExcessMap.update x (fun x0 : Q => Qred (x0 - d)) e)).
+    Proof. 
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hxy Hx Hy Hexn Hex v.
+        unfold excess.
+        destruct (equal y v), (equal x v); subst; try contradiction.
+        ++  rewrite ExcessMap.FindUpdateEq.
+            rewrite ExcessMap.FindUpdateNeq; auto.
+            apply Qred_complete.
+            assert (In x (VertexSet.to_list vs)). {
+                apply VertexSet.to_list_in. auto.
+            }
+            pose proof (PushExcessIn f (VertexSet.to_list vs) x v d Hxy (VertexSet.to_list_distinct _)).
+            destruct H0; destruct H0; [|contradiction].
+            unfold excess_loop in H1.
+            rewrite H1. rewrite <- Hex. unfold excess.
+            rewrite Qred_correct.
+            reflexivity.
+        ++  rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete.
+            assert (In y (VertexSet.to_list vs)). {
+                apply VertexSet.to_list_in. auto.
+            }
+            pose proof (PushExcessOut f (VertexSet.to_list vs) v y d Hxy (VertexSet.to_list_distinct _)).
+            destruct H0; destruct H0; [|contradiction].
+            unfold excess_loop in H1.
+            rewrite H1. rewrite <- Hex. unfold excess.
+            rewrite Qred_correct.
+            reflexivity.
+        ++  rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite Hexn. apply Qred_complete.
+            rewrite SumNoUpdateL; auto. 
+            rewrite SumNoUpdateR; auto. 
+            rewrite <- Hex. unfold excess.
+            rewrite Qred_correct.
+            reflexivity.
+    Qed.
+ 
+    (* alternatiivne tõestus eelmisele *)
+    Lemma ExcessCachedNe' fn f e x y d:
+        x<>y ->
+        x ∈v nodes fn = true ->
+        y ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        ExcessCached fn 
+            (EdgeMap.update (y, x) (fun x0 : Q => Qred (x0 - d)) f)
+            (ExcessMap.update y (fun x0 : Q => Qred (x0 + d)) 
+                (ExcessMap.update x (fun x0 : Q => Qred (x0 - d)) e)).
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hxy Hx Hy Hexn Hex v.
+        unfold excess.
+        destruct (equal y v), (equal x v); subst; try contradiction.
+        ++  rewrite ExcessMap.FindUpdateEq.
+            rewrite ExcessMap.FindUpdateNeq; auto.
+            apply Qred_complete.
+            assert (In x (VertexSet.to_list vs)). { 
+                apply VertexSet.to_list_in. auto.
+            }
+            assert (Hyx: v<>x). { auto. }
+            pose proof (PushExcessOut f (VertexSet.to_list vs) v x (-d) Hyx (VertexSet.to_list_distinct _)).
+            destruct H0; destruct H0; [|contradiction].
+            unfold excess_loop in H1.
+            rewrite H1. rewrite <- Hex. unfold excess.
+            rewrite Qred_correct. lra.
+        ++  rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete.
+            assert (In y (VertexSet.to_list vs)). { 
+                apply VertexSet.to_list_in. auto.
+            }
+            pose proof (PushExcessIn f (VertexSet.to_list vs) y v (-d) n (VertexSet.to_list_distinct _)).
+            destruct H0; destruct H0; [|contradiction].
+            unfold excess_loop in H1.
+            rewrite H1. rewrite <- Hex. unfold excess.
+            rewrite Qred_correct.
+            reflexivity.
+        ++  rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite ExcessMap.FindUpdateNeq; auto.
+            rewrite Hexn. apply Qred_complete.
+            rewrite SumNoUpdateL; auto. 
+            rewrite SumNoUpdateR; auto. 
+            rewrite <- Hex. unfold excess.
+            rewrite Qred_correct.
+            reflexivity.
     Qed.
     
+
+    (* Kui enne push-sammu on ülejäägid õigesti meelde jäetud, siis on nad seda ka pärast push-sammu. *)
+    Lemma PushExcessCached fn f e x y f' e':
+        y<>x ->
+        x ∈v nodes fn = true ->
+        y ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        push fn f e x y = (f', e') ->
+        ExcessCached fn f' e'.
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hxy Hx Hy Hexn Hex H.
+        unfold push in H.
+        destruct ((x, y) ∈e es) eqn:E.
+        +   apply pair_equal_spec in H. destruct H. subst.
+            set (d:=Qmin _ _). generalize d. clear d. 
+            intros d.
+            apply ExcessCachedNe; auto. 
+        +   apply pair_equal_spec in H. destruct H. subst.
+            set (d:=Qmin _ _). generalize d. clear d. 
+            intros d.
+            unfold Qminus.
+            apply ExcessCachedNe'; auto.
+    Qed.
+
+    (* Sama nagu ExcessCachedNe, aga ühe tipuga. *)
+    Lemma ExcessCachedLoop fn f e x d:
+        x ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        ExcessCached fn 
+            (EdgeMap.update (x, x) (fun x0 : Q => Qred (x0 + d)) f)
+            (ExcessMap.update x (fun x0 : Q => Qred (x0 + d)) 
+                (ExcessMap.update x (fun x0 : Q => Qred (x0 - d)) e)).
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hx Hexn Hex v.
+        unfold excess.
+        pose proof (PushExcessCycle f (VertexSet.to_list vs) x d v).
+        unfold excess_loop in H.
+        destruct (equal v x); subst.
+        ++  repeat rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. rewrite H. 
+            rewrite <- Hex. unfold excess.
+            repeat rewrite Qred_correct.
+            lra.
+        ++  repeat (rewrite ExcessMap.FindUpdateNeq; auto).
+            rewrite Hexn.
+            apply Qred_complete. rewrite H. 
+            rewrite <- Hex. unfold excess.
+            repeat (rewrite Qred_correct; auto).
+            lra.
+    Qed.
+
+    Lemma ExcessCachedLoop' fn f e x d:
+        x ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        ExcessCached fn 
+            (EdgeMap.update (x, x) (fun x0 : Q => Qred (x0 - d)) f)
+            (ExcessMap.update x (fun x0 : Q => Qred (x0 + d)) 
+                (ExcessMap.update x (fun x0 : Q => Qred (x0 - d)) e)).
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hx Hexn Hex v.
+        unfold excess.
+        pose proof (PushExcessCycle f (VertexSet.to_list vs) x (-d) v).
+        unfold excess_loop in H.
+        destruct (equal v x); subst.
+        ++  repeat rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. rewrite H. 
+            rewrite <- Hex. unfold excess.
+            repeat rewrite Qred_correct.
+            lra.
+        ++  repeat (rewrite ExcessMap.FindUpdateNeq; auto).
+            rewrite Hexn.
+            apply Qred_complete. rewrite H. 
+            rewrite <- Hex. unfold excess.
+            repeat (rewrite Qred_correct; auto).
+            lra.
+    Qed.
+
+    Lemma PushExcessCachedLoop fn f e x f' e':
+        x ∈v nodes fn = true ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
+        push fn f e x x = (f', e') ->
+        ExcessCached fn f' e'.
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hx Hexn Hex H.
+        unfold push in H.
+        destruct ((x, x) ∈e es) eqn:E.
+        +   apply pair_equal_spec in H. destruct H. subst.
+            set (d:=Qmin _ _). generalize d. clear d. 
+            intros d.
+            apply ExcessCachedLoop; auto.
+        +   apply pair_equal_spec in H. destruct H. subst.
+            set (d:=Qmin _ _). generalize d. clear d.
+            intros d.
+            apply ExcessCachedLoop'; auto.
+    Qed.
+    
+    (* Pärast relabel-sammu ei teki "järskeid kaari" ehk kaari, kus oleks alles läbilaskevõimet ja
+    kaare lähtetipu kõrgus oleks suurem kui kaare sihttipu kõrgus + 1. *)
     Lemma RelabelNoSteepArc fn f l x:
         (x ∈v nodes fn) = true -> 
         ResCapNodes fn f ->
@@ -1598,14 +2043,16 @@ Module PR
         + rewrite VertexMap.FindReplaceNeq; auto. rewrite VertexMap.FindReplaceNeq; auto.
     Qed.
 
-
-    Lemma RelabelValidCondition fn f e l u : 
-        ActiveNode fn f e u ->
+    (* Kui u on aktiivne tipp, "järskeid" kaari pole, push-sammuks
+    sobilikku tippu ei leita, relabel-sammuks leitakse sobilik tipp,
+    siis relabel-sammu eeldused on täidetud. *)
+    Lemma RelabelValidCondition fn f l u : 
+        ActiveNode fn f u ->
         NoSteepArc fn f l ->
         find_push_node fn f l u (nodes fn) = None -> 
         forall v,
         relabel_find fn f l u (nodes fn) = Some v -> 
-        RelabelCondition fn f e l u.
+        RelabelCondition fn f l u.
     Proof.
         unfold ActiveNode, NoSteepArc, RelabelCondition.
         destruct fn as [[[[vs es] c] s] t]. intros.
@@ -1618,41 +2065,17 @@ Module PR
         + lia.
         Qed.
 
-    (* minu lisatud lemma *)
-    (* Pärast push sammu on pushi esimese tipu ülejääk delta võrra väiksem ja teise tipu ülejääk delta võrra suurem. *)
-    Lemma ExcessDeltaEq fn f e u v:
-        let '((vs,es),c,s,t) := fn in
-        let (f', e') := push fn f e u v in
-        let delta := EdgeMap.find 0 f' (u,v) - EdgeMap.find 0 f (u,v) in
-        (u, v) ∈e es = true ->
-        (v ∈v vs) = true ->
-        NonDeficientFlowConstraint fn f e ->
-        LoopFlowCapacity f c ->
-        u<>s -> 
-        v<>s ->
-        ExcessMap.find 0 e' u == ExcessMap.find 0 e u - delta /\
-         ExcessMap.find 0 e' v == ExcessMap.find 0 e v + delta
-        .
-    Proof.
-        destruct fn as [[[[vs es] c] s] t]. unfold push. unfold excess_update. unfold LoopFlowCapacity, 
-        NonDeficientFlowConstraint. destruct ((u, v) ∈e es) eqn: E; intros.
-        + simpl. rewrite ExcessMap.FindReplaceEq. rewrite E. destruct (equal u v).
-            - inv_clear e0. rewrite ExcessMap.FindReplaceEq. apply H2 in H5. destruct H5.
-            rewrite EdgeMap.FindUpdateEq. rewrite H5. rewrite H6. apply H1 in H3. split; apply Qplus_inj_l.
-            edestruct (Q.min_spec_le); destruct H7; rewrite H8; lra. 
-                * rewrite Qplus_0_l; lra.
-                * apply H0.
-            - rewrite ExcessMap.FindReplaceNeq. rewrite ExcessMap.FindReplaceEq. rewrite EdgeMap.FindUpdateEq.
-            split; edestruct (Q.min_spec_le); destruct H5; rewrite H6; lra. apply n.
-        + discriminate.
-    Qed.
+    Lemma PairFst {A B} {f:A*B} {x y}: f = (x,y) -> x = fst f.
+    Proof. intros. rewrite H. reflexivity. Qed.
 
-    (* Siis kui gpr_helper_trace tagastab voo f', ülejäägid e' ja kõrgused l', siis järeldub, et ainukesed aktiivsed tipud on sisend või väljund,
+    (* Siis kui gpr_helper tagastab voo f', ülejäägid e' ja kõrgused l', siis järeldub, et ainukesed aktiivsed tipud on sisend või väljund,
      täidetud on voo säilivuse nõue ja sisendi ning väljundi kõrgused on samad, mis alguses ehk invariante ei rikuta.  *)
     Lemma FlowConservationGpr fn g:forall (f: @EdgeMap.t R 0) (e:ExcessMap.t R) (l: @VertexMap.t nat O) ac,
         let '((vs, es),c,s,t) := fn in
         (* Iga tipp u ja v korral, kui nende vahel on serv, siis need tipud kuuluvad tippude hulka*)
         (forall u v, ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
+        ExcessCacheNormal e ->
+        ExcessCached fn f e ->
         (* Leidub tippusid, mille vahel on läbilaskevõime *)
         ResCapNodes fn f ->
         (* Täidetud on invariant h(u) <= h(v) + 1 *)
@@ -1663,259 +2086,312 @@ Module PR
         ValidLabeling fn f l ->
         (* Iga tipu n korral, kui n kuulub aktiivsete tippude hulka, siis see on ekvivalentne sellega, et tipus n on ülejääk ja 
         tipp n pole sisend ega väljund*)
-        (forall n, n ∈v ac = true <-> (ActiveNode fn f e n /\ n<>t /\ n<>s)) ->
+        (forall n, n ∈v ac = true <-> (ActiveNode fn f n /\ n<>t /\ n<>s)) ->
         (* Täidetud on eelvoo tingimused *)
-        PreFlowCond fn f e ->
+        PreFlowCond fn f ->
         (* Vood ja läbilaskevõimed on mittenegatiivsed *)
         FlowMapPositiveConstraint fn f ->
-        (* gpr_helper_trace tagastab voo f', ülejäägid e' ja kõrgsued l'. Sellest järeldub, et*)
+        (* gpr_helper tagastab voo f', ülejäägid e' ja kõrgsued l'. Sellest järeldub, et*)
         forall f' e' l', 
-        gpr_helper_trace fn f e l ac g = (Some (f', e', l')) ->
+        gpr_helper fn f e l ac g = (Some (f', e', l')) ->
+        ExcessCacheNormal e' /\
+        ExcessCached fn f' e' /\
         (* Aktiivsete tippude hulga ainsad elemendid on väljund ja sisend*)
-        (forall n, ActiveNode fn f' e' n -> n=t \/ n=s) /\
+        (forall n, ActiveNode fn f' n -> n=t \/ n=s) /\
         (* Täidetud on voo säilivuse nõue*)
         FlowConservationConstraint fn f' e' /\
-        (* Sisendi ja väljundi kõrgus on funktsiooni gpr_helper_trace lõpus sama, mis oli alguses *)
-        (VertexMap.find 0 l s)%nat = (VertexMap.find 0 l' s)%nat /\ (VertexMap.find 0 l t)%nat = (VertexMap.find 0 l' t)%nat.
-    Proof. Admitted.
-        (* destruct fn as [[[[vs es] c] s] t]. induction g;
-        intros f e l ac tr Heisn Hrcn Hnsa Hnvs Hvl Han Hprc Hfmpc f' e' l' tr' H.
-        + simpl in H. inversion H.
-        + rewrite gpr_helper_trace_fn in H. destruct_guard_in H.
-            - destruct p. destruct_guard_in H.
-                * cbn zeta in H. destruct_guard_in H. destruct_guard_in H.
-                    ** apply VertexSet.choiceSome in E0. destruct E0.
-                    apply IHg in H; eauto.
-                        *** clear H IHg. apply (PushResCapNodes (vs,es,c,s,t) t1 t2 v v0). auto.
-                            **** apply FPNinVs in E1. auto.
-                        *** clear H IHg. apply PushNoSteepArc; auto.
-                        eapply FPNCondition; eauto.
-                        apply Han in H0. tauto.
-                        *** clear H IHg. intros. destruct_guard_in H. simpl VertexSet.mem in H.
-                            **** destruct (equal n v0).
-                                ***** subst. eapply FPNinVs; eauto.
-                    
-                                ***** rewrite VertexSet.MemAddNeq in H; auto.
-                            **** destruct (equal n v0).
-                                ***** subst. eapply FPNinVs; eauto.
-                                ***** rewrite VertexSet.MemAddNeq in H; auto. subst. destruct (equal n v).
-                                    ****** subst. rewrite VertexSet.MemRemoveEq in H. inversion H.
-                                    ****** rewrite VertexSet.MemRemoveNeq in H; auto.
-                        *** clear H IHg. eapply (PushValidLabel (vs, es, c ,s, t)); auto.
-                            eapply FPNCondition; eauto. apply Han in H0. tauto.
-                        *** intros. split; intros.
-                            **** destruct (equal n v0).
-                                ***** subst. clear H IHg. apply HENSCondition in E2. split; try tauto.
-                                split.
-                                    ****** eapply FPNinVs in E1. auto.
-                                    ****** tauto.
-                                ***** clear H IHg. rewrite VertexSet.MemAddNeq in H2; eauto.
-                                destruct_guard_in H2.
-                                    ****** eapply Han in H2. destruct H2. split; eauto.
-                                    destruct (equal n v). subst.
-                                        *******  eapply (reflect_iff _ _ (QLt_spec _ _)) in E0. split; eauto.
-                                        ******* eapply PushActiveCondition; eauto.
-                                    ****** subst. destruct (equal n v).
-                                        ******* subst. rewrite VertexSet.MemRemoveEq in H2. inversion H2.
-                                        ******* rewrite VertexSet.MemRemoveNeq in H2; eauto. 
-                                        eapply Han in H2. destruct H2. split; eauto. 
-                                        eapply PushActiveCondition; eauto.
-                            **** clear H IHg. destruct (equal n v0).
-                                ***** subst. apply VertexSet.MemAddEq. 
-                                ***** rewrite VertexSet.MemAddNeq; auto.
-                                destruct_guard.
-                                ****** eapply Han. destruct H2. split; auto. destruct (equal n v).
-                                    ******* subst. eapply Han in H0. tauto.
-                                    ******* eapply PushActiveInv in H; auto. 
-                                        ******** eapply FPNinVs in E1. auto.
-                                        ******** eapply FPNCondition in E1; eauto.
-                                        apply Han in H0; tauto.
-                                ****** subst. rewrite VertexSet.MemRemoveNeq.
-                                    ******* eapply FPNinVs in E1 as P. eapply FPNCondition in E1; eauto;
-                                    [| eapply Han in H0; tauto]. destruct H2. eapply PushActiveInv in H; eauto.
-                                    eapply Han. split; auto.
-                                    ******* intro C. subst. destruct H2. destruct H. apply QLt_false in E0. lra.
-                        *** clear H IHg. eapply (PushPreFlow (vs, es, c, s, t)); auto. 
-                            **** eapply FPNinVs in E1. auto.
-                            **** eapply FPNCondition; eauto. eapply Han in H0; tauto.
-                        *** clear H IHg. eapply (PushFlowMapPos (vs, es, c, s, t)); eauto.
-                        eapply FPNCondition; eauto. eapply Han in H0. tauto.
-                    ** eapply VertexSet.choiceSome in E0 as P; auto. destruct P.
-                    eapply FPNinVs in E1 as P. apply Han in H0 as W. destruct W. 
-                    eapply FPNCondition in E1 as P2; auto.
-                    eapply HENSConditionFalse in E2 as Q.
-                    eapply IHg in H; eauto.
-                        *** eapply PushResCapNodes; auto.
-                        *** eapply PushNoSteepArc; auto.
-                        *** intros. destruct (equal n v0).
-                            **** subst. auto.
-                            **** rewrite VertexSet.MemRemoveNeq in H4; auto. eapply Hnvs.
-                            destruct_guard_in H4; auto. subst.
-                            rewrite VertexSet.MemRemoveNeq in H4; auto.
-                            intro C. subst. rewrite VertexSet.MemRemoveEq in H4. inversion H4.
-                        *** eapply (PushValidLabel (vs, es, c, s, t)); eauto.
-                        *** intros. destruct (equal n v0).
-                            **** subst. rewrite VertexSet.MemRemoveEq. split; intros; [inversion H1 |].
-                            destruct Q.
-                                ***** destruct H1. destruct H1. lra.
-                                ***** simpl in H4. tauto.
-                            **** rewrite VertexSet.MemRemoveNeq; auto. destruct_guard; split; intros.
-                                ***** eapply Han in H4. destruct H4. split; auto. destruct (equal n v).
-                                    ****** subst. split; auto.  eapply (reflect_iff _ _ (QLt_spec _ _)) in E3.
-                                    auto.
-                                    ****** eapply PushActiveCondition; eauto.
-                                ***** eapply Han. destruct H4. split; auto.
-                                eapply PushActiveInv in P2; eauto.
-                                ***** subst. destruct (equal n v).
-                                    ****** subst. rewrite VertexSet.MemRemoveEq in H4. inversion H4.
-                                    ****** rewrite VertexSet.MemRemoveNeq in H4; auto. 
-                                    eapply Han in H4. destruct H4. split; auto. 
-                                    eapply PushActiveCondition; eauto.
-                                ***** subst. destruct (equal n v).
-                                    ****** subst. eapply QLt_false in E3. destruct H4, H1. lra.
-                                    ****** rewrite VertexSet.MemRemoveNeq; auto. eapply Han. destruct H4. split; auto.
-                                    eapply PushActiveInv in P2; eauto.
-                        *** eapply (PushPreFlow (vs, es, c, s, t)); eauto.
-                        *** eapply (PushFlowMapPos (vs, es, c, s, t)); eauto.
-        * destruct_guard_in H.
-            ** eapply VertexSet.choiceSome in E0; auto. destruct E0, H1.
-         eapply IHg in H; eauto.
-                *** split; try tauto. split; try tauto.
-                    destruct H, H1, H2. rewrite <- H2, <- H3. subst.
-                    unfold relabel in E2. destruct_guard_in E2; [|inversion E2]. inv_clear E2.
-                    destruct (equal s v).
-                    **** subst. exfalso. apply Han in H0. destruct H0, H4. auto.
-                    **** rewrite VertexMap.FindReplaceNeq; auto. split; auto.
-                        destruct (equal t v). 
-                        ***** subst. exfalso. apply Han in H0. destruct H0. destruct H4; auto.
-                        ***** rewrite VertexMap.FindReplaceNeq; auto.
-                *** eapply RelabelNoSteepArc; eauto.
-                *** eapply (RelabelValidLabel (vs, es, c, s, t)); eauto. 
-                unfold relabel in E2. destruct_guard_in E2; [| inversion E2].
-                eapply RelabelValidCondition; eauto.
-                    **** apply Han. auto.
-            ** inversion H. 
-    - apply VertexSet.choiceNone in E0. subst. inv_clear H. split.
+        (* Sisendi ja väljundi kõrgus on funktsiooni gpr_helper lõpus sama, mis oli alguses *)
+        (l[s]l)%nat = (l'[s]l)%nat /\ (l[t]l)%nat = (l'[t]l)%nat.
+    Proof. 
+        destruct fn as [[[[vs es] c] s] t]. induction g;
+        intros f e l ac Heisn Hen Hex Hrcn Hnsa Hnvs Hvl Han Hprc Hfmpc f' l' e' H.
+        +   simpl in H. inversion H.
+        +   rewrite gpr_helper_fn in H. destruct_guard_in H.
+        ++  destruct p. destruct_guard_in H.
+        +++ cbn zeta in H. destruct_guard_in H.
+        *   apply VertexSet.choiceSome in E0. destruct E0.
+            destruct_guard_in H.
+        **  eapply IHg in H; eauto.
+        *** unfold push in E2 . destruct_guard_in E2.
+        -   intros q.
+            apply pair_equal_spec in E3. destruct E3. subst. clear - Hen.
+            destruct (equal q v0).
+        --  subst. unfold excess_update. rewrite ExcessMap.FindUpdateEq. 
+            apply Qred_complete. set (q:=Qred _).  rewrite (Qred_correct). reflexivity.
+        --  repeat (rewrite ExcessMap.FindUpdateNeq with (v:=v0); auto).
+            destruct (equal q v).
+        --- subst. unfold excess_update. rewrite ExcessMap.FindUpdateNeq; auto. 
+        rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. set (q:=Qred _).  rewrite Qred_correct. reflexivity.
+        --- repeat (unfold excess_update; rewrite ExcessMap.FindUpdateNeq; auto). 
+        -   intros q. 
+            apply pair_equal_spec in E3. destruct E3. subst. clear - Hen.
+            destruct (equal q v0).
+        --  subst. unfold excess_update. rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. set (q:=Qred _ ). rewrite Qred_correct. reflexivity.
+        --  repeat (rewrite ExcessMap.FindUpdateNeq with (v:=v0); auto).
+            destruct (equal q v).
+        --- subst. repeat (rewrite ExcessMap.FindUpdateEq). unfold excess_update. 
+        rewrite ExcessMap.FindUpdateNeq; auto. rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. set (q:=Qred _).  rewrite Qred_correct. reflexivity.
+        --- repeat (rewrite ExcessMap.FindUpdateNeq; auto). unfold excess_update.
+        rewrite ExcessMap.FindUpdateNeq; auto. rewrite ExcessMap.FindUpdateNeq; auto.
+        *** destruct (equal v v0).
+        -   subst. apply PushExcessCachedLoop in E2; auto.
+        -   apply PushExcessCached in E2; auto. cbn.
+            apply FPNinVs in E1; auto.
+        *** rewrite (PairFst E2).
+            clear H IHg. apply PushResCapNodes; auto.
+            eapply FPNinVs, E1.
+        *** rewrite (PairFst E2).
+            clear H IHg. apply PushNoSteepArc; auto.
+            eapply FPNCondition; eauto.
+            apply Han in H0. tauto.
+        *** clear H IHg. intros. destruct_guard_in H. simpl VertexSet.mem in H.
+        **** destruct (equal n v0).
+        ***** subst. eapply FPNinVs; eauto.
+        ***** rewrite VertexSet.MemAddNeq in H; auto.
+        **** destruct (equal n v0).
+        ***** subst. eapply FPNinVs; eauto.
+        ***** rewrite VertexSet.MemAddNeq in H; auto. subst. destruct (equal n v).
+        ****** subst. rewrite VertexSet.MemRemoveEq in H. inversion H.
+        ****** rewrite VertexSet.MemRemoveNeq in H; auto.
+        *** rewrite (PairFst E2).
+            clear H IHg. eapply (PushValidLabel (vs, es, c ,s, t)); auto.
+            eapply FPNCondition; eauto. apply Han in H0. tauto.
+        *** rewrite (PairFst E2). 
+            intros. split; intros.
+        **** destruct (equal n v0).
+        ***** subst. clear H IHg. apply HENSCondition in E0. 
+            split; try tauto. split.
+        ****** eapply FPNinVs, E1.
+        ****** destruct (equal v v0).
+        -   subst. rewrite E2. simpl fst.
+            apply PushExcessCachedLoop in E2; auto. 
+            rewrite (E2 v0). tauto.
+        -   rewrite E2. simpl fst.
+            apply PushExcessCached in E2; auto.
+        --  rewrite (E2 v0). tauto. 
+        --  apply FPNinVs in E1; auto.
+        ****** auto.
+        ***** clear H IHg. rewrite VertexSet.MemAddNeq in H2; eauto.
+        destruct_guard_in H2.
+        ****** eapply Han in H2. destruct H2. split; eauto.
+        destruct (equal n v). 
+        ******* subst. 
+            eapply (reflect_iff _ _ (QLt_spec _ _)) in E3. split; eauto.
+            destruct (equal v v0).
+        -   subst. rewrite E2. simpl fst.
+            apply PushExcessCachedLoop in E2; auto. 
+            rewrite (E2 v0). tauto.
+        -   rewrite E2. simpl fst.
+            apply PushExcessCached in E2; auto.
+        --  rewrite (E2 v). tauto. 
+        --  apply FPNinVs in E1; auto.
+        ******* eapply PushActiveCondition; eauto.
+        ****** subst. destruct (equal n v).
+        ******* subst. rewrite VertexSet.MemRemoveEq in H2. inversion H2.
+        ******* rewrite VertexSet.MemRemoveNeq in H2; eauto. 
+        eapply Han in H2. destruct H2. split; eauto. 
+         eapply PushActiveCondition; eauto.
+        **** clear H IHg. destruct (equal n v0).
+        ***** subst. apply VertexSet.MemAddEq. 
+        ***** rewrite VertexSet.MemAddNeq; auto.
+        destruct_guard.
+        ****** eapply Han. destruct H2. split; auto. destruct (equal n v).
+        ******* subst. eapply Han in H0. tauto.
+        ******* eapply PushActiveInv in H; auto. 
+        ******** eapply FPNinVs in E1. auto.
+        ******** eapply FPNCondition in E1; eauto.
+        apply Han in H0; tauto.
+        ****** subst. rewrite VertexSet.MemRemoveNeq.
+        ******* eapply FPNinVs in E1 as P. eapply FPNCondition in E1; eauto;
+        [| eapply Han in H0; tauto]. destruct H2. eapply PushActiveInv in H; eauto.
+        eapply Han. split; auto.
+        ******* intro C. subst. destruct H2. destruct H. 
+            destruct (equal v v0).
+        -   subst. rewrite E2 in H2. simpl fst in H2.
+            apply PushExcessCachedLoop in E2; auto. 
+        -   rewrite E2 in H2. simpl fst in H2.
+            apply PushExcessCached in E2; auto.
+        --  specialize (E2 v). apply QLt_false in E3. rewrite E2 in H2. lra.
+        --  apply FPNinVs in E1; auto.
+        *** clear H IHg.
+            rewrite (PairFst E2).
+            eapply (PushPreFlow (vs, es, c, s, t)); auto. 
+        **** eapply FPNinVs in E1. auto.
+        **** eapply FPNCondition; eauto. eapply Han in H0; tauto.
+        *** clear H IHg. 
+            rewrite (PairFst E2).
+            eapply (PushFlowMapPos (vs, es, c, s, t)); eauto.
+            eapply FPNCondition; eauto. eapply Han in H0. tauto.
+        **  eapply FPNinVs in E1 as P. apply Han in H0 as W. destruct W. 
+            eapply FPNCondition in E1 as P2; auto.
+            eapply HENSConditionFalse in E0 as Q.
+            eapply IHg in H; eauto.
+        *** unfold push in E2 . destruct_guard_in E2. 
+        -   intros q. 
+            apply pair_equal_spec in E3. destruct E3. subst. clear - Hen.
+            destruct (equal q v0).
+        --  subst. unfold excess_update. rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. set (q:=Qred _ ). rewrite Qred_correct. reflexivity.
+        --  repeat (rewrite ExcessMap.FindUpdateNeq with (v:=v0); auto).
+            destruct (equal q v).
+        --- subst. unfold excess_update. rewrite ExcessMap.FindUpdateNeq; auto.
+        rewrite ExcessMap.FindUpdateEq. 
+            apply Qred_complete. set (q:=Qred _). rewrite Qred_correct. reflexivity.
+        --- repeat (unfold excess_update; rewrite ExcessMap.FindUpdateNeq; auto).
+        -   intros q. 
+            apply pair_equal_spec in E3. destruct E3. subst. clear - Hen.
+            destruct (equal q v0).
+        --  subst. unfold excess_update. rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. set (q:=Qred _ ). rewrite Qred_correct. reflexivity.
+        --  repeat (rewrite ExcessMap.FindUpdateNeq with (v:=v0); auto).
+            destruct (equal q v).
+        --- subst. unfold excess_update. repeat rewrite ExcessMap.FindUpdateEq. 
+        rewrite ExcessMap.FindUpdateNeq; auto. rewrite ExcessMap.FindUpdateEq.  
+            apply Qred_complete. set (q:=Qred _). rewrite Qred_correct. reflexivity.
+        --- repeat (unfold excess_update; rewrite ExcessMap.FindUpdateNeq; auto).
+        *** destruct (equal v v0).
+        -   subst. apply PushExcessCachedLoop in E2; auto.
+        -   apply PushExcessCached in E2; auto.
+        *** rewrite (PairFst E2).
+            eapply PushResCapNodes; auto.
+        *** rewrite (PairFst E2).
+            eapply PushNoSteepArc; auto.
+        *** intros. destruct (equal n v0).
+        **** subst. auto.
+        **** rewrite VertexSet.MemRemoveNeq in H4; auto. eapply Hnvs.
+         destruct_guard_in H4; auto. subst.
+         rewrite VertexSet.MemRemoveNeq in H4; auto.
+         intro C. subst. rewrite VertexSet.MemRemoveEq in H4. inversion H4.
+        *** rewrite (PairFst E2).
+            eapply (PushValidLabel (vs, es, c, s, t)); eauto.
+        *** intros. destruct (equal n v0).
+        **** subst. rewrite VertexSet.MemRemoveEq. split; intros; [inversion H1 |].
+        destruct Q.
+        ***** destruct H1. destruct H1. 
+            destruct (equal v v0).
+        -   subst. apply PushExcessCachedLoop in E2; auto.
+            specialize (E2 v0). rewrite E2 in H6. simpl Qred in *.  lra. 
+        -   apply PushExcessCached in E2; auto.
+            specialize (E2 v0). rewrite E2 in H6. simpl Qred in *.  lra.
+        ***** simpl in H4. tauto.
+        **** rewrite VertexSet.MemRemoveNeq; auto. destruct_guard; split; intros.
+        ***** eapply Han in H4. destruct H4. split; auto. destruct (equal n v).
+        ****** subst. split; auto.  eapply (reflect_iff _ _ (QLt_spec _ _)) in E3.
+            destruct (equal v v0).
+        -   subst. apply PushExcessCachedLoop in E2; auto.
+            specialize (E2 v0). rewrite E2. lra. 
+        -   apply PushExcessCached in E2; auto.
+            specialize (E2 v). rewrite E2. lra.
+        ****** rewrite (PairFst E2).
+            eapply PushActiveCondition; eauto.
+        ***** eapply Han. destruct H4. split; auto.
+            rewrite (PairFst E2) in H4.
+            eapply PushActiveInv in P2; eauto.
+        ***** subst. destruct (equal n v).
+        ****** subst. rewrite VertexSet.MemRemoveEq in H4. inversion H4.
+        ****** rewrite VertexSet.MemRemoveNeq in H4; auto. 
+            eapply Han in H4. destruct H4. split; auto.
+            rewrite (PairFst E2).
+            eapply PushActiveCondition; eauto.
+        ***** subst. destruct (equal n v).
+        ****** subst. eapply QLt_false in E3. destruct H4, H1. 
+            destruct (equal v v0).
+        -   subst. apply PushExcessCachedLoop in E2; auto.
+        -   apply PushExcessCached in E2; auto.
+            specialize (E2 v). rewrite E2 in H5. lra.
+        ****** rewrite VertexSet.MemRemoveNeq; auto. eapply Han. 
+            destruct H4. split; auto.
+            rewrite (PairFst E2) in H1.
+            eapply PushActiveInv in P2; eauto.
+        *** rewrite (PairFst E2).
+            eapply (PushPreFlow (vs, es, c, s, t)); eauto.
+        *** rewrite (PairFst E2).
+            eapply (PushFlowMapPos (vs, es, c, s, t)); eauto.
+        *** auto.
+        +++ destruct_guard_in H.
+        ** eapply VertexSet.choiceSome in E0; auto. destruct E0, H1.
+            eapply IHg in H; eauto.
+        *** split; try tauto. split; try tauto.
+            destruct H, H1, H2, H3, H4.  rewrite <- H4, <- H5. subst.
+            unfold relabel in E2. destruct_guard_in E2; [|inversion E2]. inv_clear E2.
+            destruct (equal s v).
+        **** subst. exfalso. apply Han in H0. destruct H0, H6. auto.
+        **** rewrite VertexMap.FindReplaceNeq; auto. split; auto.
+            destruct (equal t v). 
+        ***** subst. exfalso. apply Han in H0. destruct H0. destruct H6; auto.
+        ***** rewrite VertexMap.FindReplaceNeq; auto.
+        *** eapply RelabelNoSteepArc; eauto.
+        *** eapply (RelabelValidLabel (vs, es, c, s, t)); eauto. 
+        unfold relabel in E2. destruct_guard_in E2; [| inversion E2].
+        eapply RelabelValidCondition; eauto.
+        **** apply Han. auto.
+        ** inversion H. 
+        ++  apply VertexSet.choiceNone in E0. subst. inv_clear H. 
+            repeat split; try tauto.
         * intros. destruct (equal n t); auto. 
         destruct (equal n s); subst; try tauto.
         assert (n ∈v VertexSet.empty = true).
-            ** eapply Han. tauto.
-            ** rewrite VertexSet.MemEmpty in H0. inversion H0.
-        * split; try tauto.
+        ** eapply Han. tauto.
+        ** rewrite VertexSet.MemEmpty in H0. inversion H0.
+        * 
          unfold FlowConservationConstraint. intros. unfold PreFlowCond in Hprc.
         destruct Hprc. unfold NonDeficientFlowConstraint in H3.
         apply H3 in H as P; auto. clear IHg. 
         destruct (Qeq_bool (excess (vs, es, c, s, t) f' v) 0) eqn : E.
-            ** eapply Qeq_bool_iff in E. auto.
-            ** eapply Qeq_bool_neq in E. assert (v ∈v VertexSet.empty = true).
-                *** eapply Han. split; auto. split; auto. lra.
-                *** rewrite VertexSet.MemEmpty in H4. inversion H4.
-    Qed. *)
-
-    Lemma SumSameReplace (f: @EdgeMap.t R 0) (s:V->V*V) vs u v d : 
-        (forall v0, In v0 vs -> s v0 <> (u, v)) ->
-        map (fun v0 => EdgeMap.find 0 
-            (EdgeMap.replace (u, v) d f) 
-            (s v0)) vs = 
-        map (fun v0 => EdgeMap.find 0 f (s v0)) vs.
-    Proof.
-        induction vs; intros.
-        + simpl. auto.
-        + simpl. rewrite IHvs; auto.
-        f_equal. clear IHvs.
-        - erewrite EdgeMap.FindReplaceNeq; auto.
-        apply H. cbn. auto.
-        - intros. apply H. cbn. auto.
+        ** eapply Qeq_bool_iff in E. rewrite <- Hex. auto.
+        ** eapply Qeq_bool_neq in E. assert (v ∈v VertexSet.empty = true).
+        *** eapply Han. split; auto. split; auto. lra.
+        *** rewrite VertexSet.MemEmpty in H4. inversion H4.
     Qed.
 
     (* Kui (s,y) voog ei ole suurem d-st (0), siis tipu n ülejääk ei ole suurem kui (s,y) voog
         muuta võrdseks d-ga. *)
-    Lemma NDFinitial s d y n f e: 
-        EdgeMap.find 0 f (s,y) <= d ->
-        ExcessMap.find 0 e y <= d ->
+    Lemma NDFinitial vs es c s t d y n f:
+        0 <= d ->
         n<>s ->
-        ExcessMap.find 0 e n <= 
-            let f' := EdgeMap.replace (s, y) d f in
-            let delta := EdgeMap.find 0 f' (s,y) in
-            let e' := ExcessMap.replace y delta e in
-            ExcessMap.find 0 e' n .
+        excess (vs, es, c, s, t) f n <= 
+            excess (vs, es, c, s, t) (EdgeMap.update (s, y) (fun x : Q => Qred (x + d)) f) n .
     Proof.
-        intros Hd He Hnns. simpl. rewrite EdgeMap.FindReplaceEq. destruct (equal n y).
-        + inv_clear e0. rewrite ExcessMap.FindReplaceEq. apply He. 
-        + rewrite ExcessMap.FindReplaceNeq. apply Qle_refl. apply n0.
+        intros Hd Hnns. unfold excess.
+        set (xs := VertexSet.to_list vs). repeat rewrite Qred_correct.
+        induction xs; intros.
+        +   simpl. lra. 
+        +   repeat rewrite map_fn. repeat rewrite QSumListFn.
+            destruct (equal n y).
+        -   subst. destruct (equal a s).
+        *   subst. erewrite EdgeMap.FindUpdateEq. 
+            erewrite EdgeMap.FindUpdateNeq;
+                [|intros C; inv_clear C; contradiction].
+            unfold R in *. rewrite Qred_correct. lra.
+        *   repeat (erewrite EdgeMap.FindUpdateNeq;
+                [|intro C; inv_clear C; auto]).
+            unfold R in *. lra.
+        - repeat (erewrite EdgeMap.FindUpdateNeq;
+                [|intro C; inv_clear C; auto]).
+            unfold R in *. lra.
     Qed.
 
-    (* Kui iga kaare puhul kehtib, et lähtetipust väljuv voog on suurem kui sinna suubuv voog ja kaare
-    (s,y) voog ei ole suurem selle läbilaskevõimest, siis lähtetipu s ülejääk ei ole positiivne pärast tippu y
-     võimalikult suure voo saatmist. *)
-    Lemma SourceDeficient c s f e y:
-    (* (forall a, EMap.find 0 f (a,s) <= EMap.find 0 f (s,a)) ->  *) (* unused, kas seda on vaja? *) 
-        LoopFlowCapacity f c ->
-        EdgeMap.find 0 f (s,y) <= c s y ->
-        ExcessMap.find 0 e s <= 0 ->
-        let old_flow := EdgeMap.find 0 f (s,y) in
-        let f' := EdgeMap.replace (s, y) (c s y) f in
-        let e' := excess_update e s ((c s y) - old_flow) y in (* suuname maksimaalse võimaliku voo s-st y-sse *)
-        ExcessMap.find 0 e' s <= 0.
-    Proof. 
-        intros. unfold excess_update in *. unfold LoopFlowCapacity in H. unfold old_flow in e'. unfold e'. 
-        destruct (equal s y).
-        + inv_clear e0. rewrite ExcessMap.FindReplaceEq. specialize (H y y). apply H in H2. lra.
-        + rewrite ExcessMap.FindReplaceNeq; auto. rewrite ExcessMap.FindReplaceEq. lra.
-    Qed.
-
-    Lemma ExcessSame c s y f e n: 
-        (forall a, EdgeMap.find 0 f (a,s) <= EdgeMap.find 0 f (s,a)) ->
-        EdgeMap.find 0 f (s,y) <= c s y ->
-        n<>s ->
-        n<>y ->
-        ExcessMap.find 0 e n ==
-        ExcessMap.find 0 (excess_update e s (c s y) y) n.
+    (* Tippu n sisenevate kaarte summa ei muutu väiksemaks, kui eelenvalt suurendada kõiki
+    tipust s väljuvate kaarte voogusid d võrra. *)
+    Lemma InitialUpdateBigger: forall f s v0 n d xs, d >= 0 ->
+        QSumList (map (fun v1 : V =>
+             EdgeMap.find 0 (EdgeMap.update (s, v0) (fun x => Qred (x + d)) f) (v1, n)) xs) >=
+        QSumList (map (fun v1 : V => f[(v1, n)]f) xs).
     Proof.
-        intros Has Hcap Hnns Hnny. unfold excess_update.
-        erewrite ExcessMap.FindReplaceNeq.
-        + erewrite ExcessMap.FindReplaceNeq. reflexivity. apply Hnns.
-        + apply Hnny.
-    Qed.
-
-    Lemma SumNoR: forall f vs v t c n, n <> t ->
-        QSumList (map (fun v0 : V => EdgeMap.find 0 (EdgeMap.replace (v, t) c f) (v0, n)) vs) =
-         QSumList (map (fun v0 : V => EdgeMap.find 0 f (v0, n)) vs).
-    Proof.
-        intros f vs. induction vs; intros; cbn; auto.
-        assert ((a, n) <> (v, t)). { 
-            intro q. inv_clear q. tauto. 
-        }
-        rewrite EdgeMap.FindReplaceNeq; auto.
-        eapply (IHvs v t c) in H. rewrite H. 
-        reflexivity.
-    Qed.
-        
-    Lemma SumNoL: forall f vs v t c s, s <> v ->
-        QSumList (map (fun v0 : V => EdgeMap.find 0 (EdgeMap.replace (v, t) c f) (s,v0)) vs) =
-         QSumList (map (fun v0 : V => EdgeMap.find 0 f (s,v0)) vs).
-    Proof.
-        intros f vs. induction vs; intros; cbn; auto.
-        assert ((s, a) <> (v, t)). { 
-            intro q. inv_clear q. tauto. 
-        }
-        rewrite EdgeMap.FindReplaceNeq; auto.
-        eapply (IHvs v t c) in H. rewrite H. 
-        reflexivity.
-    Qed.
-
-    Lemma InitialUpdateBigger: forall f s v0 n c, 
-        (forall u v, EdgeMap.find 0 f (u, v) <= c u v) -> forall xs,
-        QSumList (map (fun v1 : V => EdgeMap.find 0 (EdgeMap.replace (s, v0) (c s v0) f) (v1, n)) xs) >=
-         QSumList (map (fun v1 : V => EdgeMap.find 0 f (v1, n)) xs).
-    Proof.
-        intros f s v0 n c P xs.
-        induction xs; cbn; intros; try lra.
+        intros f s v0 n d xs H.
+        induction xs; intros; [cbn; try lra|].
         destruct (Edge.equal (a,n) (s,v0)).
         +   inv_clear e.
-            rewrite EdgeMap.FindReplaceEq.
-            specialize (P s v0). lra.
-        +   rewrite EdgeMap.FindReplaceNeq; auto. lra.
+            repeat rewrite map_fn.
+            repeat rewrite QSumListFn.
+            rewrite EdgeMap.FindUpdateEq.
+            rewrite Qred_correct. lra.
+        +   repeat rewrite map_fn.
+            repeat rewrite QSumListFn.
+            rewrite EdgeMap.FindUpdateNeq; auto. lra.
     Qed.
 
     (* Peale initsialiseerimist on aktiivsete tippude hulgas tipud, mis ei ole sisend ega väljund ja on täidetud eelvoo nõuded
@@ -1929,18 +2405,21 @@ Module PR
         (* Kui algoritmi initsialiseerimise samm, kus tehakse push samm sisendist väljuvate servade peal
         tagastab voo f' ja aktiivsed tipud ac', siis sellest järeldub all olev konjuktsioon*)
         initial_push fn = (f',e',ac') ->
+        ExcessCacheNormal e' /\
+        ExcessCached fn f' e' /\
         ResCapNodes fn f' /\
-        (forall u v, EdgeMap.find 0 f' (u, v) <= c u v) /\
         (forall n, n ∈v ac' = true -> n ∈v vs = true) /\
-        (forall n, n ∈v ac' = true <-> (ActiveNode fn f' e' n /\ n<>t /\ n<>s)) /\
-        PreFlowCond fn f' e' /\
+        (forall n, n ∈v ac' = true <-> (ActiveNode fn f' n /\ n<>t /\ n<>s)) /\
+        PreFlowCond fn f' /\
         FlowMapPositiveConstraint fn f'.
-    Proof. Admitted.
-        (* destruct fn as [[[[vs es] c] s] t].
-        intros Hvs Hc.
+    Proof.
+        destruct fn as [[[[vs es] c] s] t].
+        intros Hvs Hc. 
+        intros f' e' ac'.
         unfold initial_push.
         set (es' := EdgeSet.filter _ _).
         rewrite <- fold_left_rev_right.
+        unfold initial_push_step.
         set (xs := rev _).
         assert (K:forall x, In x xs -> EdgeSet.mem x es = true). {
             intros. apply in_rev in H.
@@ -1954,78 +2433,115 @@ Module PR
             destruct x. destruct (equal s v); subst;cbn; auto.
             destruct H. inversion H0.
         }
+        assert (Ds: Distinct xs). {
+            apply rev_distinct. 
+            apply EdgeSet.to_list_distinct.
+        }
         set (F := (fun y => _)).
-        induction xs; intros f' ac' H.
+        intros H.
+        apply (@proj2  (forall u v, ~In (u,v) xs -> f'[(u, v)]f == 0)).
+        generalize dependent H.
+        generalize dependent e'.
+        generalize dependent ac'.
+        generalize dependent f'.
+        induction xs; intros f' e' ac' H.
         +   cbn in H. inv_clear H.
              repeat split; auto.
+        ++  intros. rewrite EdgeMap.FindEmpty. lra.
+        ++  intros v. rewrite ExcessMap.FindEmpty. apply Qred_complete. 
+            rewrite Qred_correct. lra.
+        ++  intros v. unfold excess.
+            rewrite ExcessMap.FindEmpty. apply Qred_complete.
+            generalize (VertexSet.to_list vs).
+            intros l. induction l; cbn; [lra|].
+            repeat rewrite EdgeMap.FindEmpty. lra.
         ++  cbn in H. destruct_guard_in H.
         +++ apply Hvs in E0. tauto.
         +++ rewrite EdgeMap.FindEmpty in H. lra.
         ++  cbn in H. destruct_guard_in H.
         +++ apply Hvs in E0. tauto.
         +++ rewrite EdgeMap.FindEmpty in H. lra.
-        ++  intros. rewrite EdgeMap.FindEmpty. apply Hc.
         ++  intros. rewrite VertexSet.MemEmpty in H. inversion H.
         ++  rewrite VertexSet.MemEmpty in H. inversion H.
         ++  rewrite VertexSet.MemEmpty in H. inversion H.
         ++  rewrite VertexSet.MemEmpty in H. inversion H.
         ++  rewrite VertexSet.MemEmpty in H. inversion H.
-        ++  intros [[H0 H1] [H2 H3]]. cbn in H1.
+        ++  intros [[H0 H1] [H2 H3]]. 
+            unfold excess in H1.
             set (ys:=VertexSet.to_list vs) in H1. exfalso. clear -H1.
             induction ys.
         +++ cbn in H1. lra.
-        +++ cbn in *. repeat rewrite EdgeMap.FindEmpty in H1. lra.
+        +++ repeat rewrite map_fn, QSumListFn in H1.
+            repeat rewrite EdgeMap.FindEmpty in H1.
+            rewrite Qred_correct in H1, IHys. lra.
         ++  cbn. intros. rewrite EdgeMap.FindEmpty. apply Hc.
-        ++  cbn. intros. set (ys:=VertexSet.to_list vs). clear -ys .
+        ++  unfold NonDeficientFlowConstraint, excess. intros. 
+            set (ys:=VertexSet.to_list vs). clear -ys .
             induction ys.
         +++ cbn. lra.
-        +++ cbn. repeat rewrite EdgeMap.FindEmpty. lra.
+        +++ repeat rewrite map_fn, QSumListFn.
+            repeat rewrite EdgeMap.FindEmpty.
+            rewrite Qred_correct in IHys |- *. lra.
         ++  rewrite EdgeMap.FindEmpty. lra.
         +   simpl fold_right in H. destruct a.
-            destruct (fold_right F (EdgeMap.empty, VertexSet.empty) xs) eqn:E.
+            destruct (fold_right F (EdgeMap.empty 0, ExcessMap.empty 0, VertexSet.empty) xs) eqn:E. destruct p.
             assert (K' : forall x : V * V, In x xs -> x ∈e es = true). {
                 clear -K. intros. apply K. cbn. tauto.
             }
             assert (G' : forall x, In x xs -> fst x = s). {
                 clear -G. intros. apply G. cbn. tauto.
             }
-            specialize (IHxs K' G' _ _ eq_refl).
+            destruct Ds as [Ds1 Ds2].
+            specialize (IHxs K' G' Ds2 _ _ _ eq_refl).
             unfold F in H. unfold has_excess_not_sink in H.
             apply pair_equal_spec in H. destruct H. subst.
-            destruct IHxs as [H1 [H2 [H3 [H4 H5]]]].
+            destruct IHxs as [H1 [H2 [H3 [H4 [H5 [H6 H7]]]]]].
             assert (J: v ∈v vs = true /\ v0 ∈v vs = true). {
                 apply Hvs, K. constructor; auto.
             }
-            specialize  (G (v,v0)). cbn in G. rewrite G in *; auto. clear G.
+            assert (G2: v = s). {
+                eapply (G (v,v0)). constructor; auto.
+            }
+            destruct J as [J0 J1].
+            apply pair_equal_spec in H as [D1 D2]; subst.
             repeat split; auto.
-        ++  unfold res_cap in H. 
-            specialize (H1 u v1).
-            unfold res_cap in H1.
-            destruct ((u, v1) ∈e es) eqn:E1.
+        ++  intros.
+            destruct (Edge.equal (u,v) (s,v0)).
+        +++ inv_clear e.
+            destruct H. cbn. tauto. 
+        +++ rewrite EdgeMap.FindUpdateNeq; auto.
+            apply H1. intro C. apply H. right. apply C.
+        ++  intros v.
+            destruct (equal v0 v).
+        +++ subst. rewrite ExcessMap.FindUpdateEq.
+            apply Qred_complete. symmetry. apply Qred_correct.
+        +++ rewrite ExcessMap.FindUpdateNeq; auto.
+            destruct (equal s v).
+            *   subst. rewrite ExcessMap.FindUpdateEq; auto.
+                apply Qred_complete. symmetry.
+                apply Qred_correct.
+            *   rewrite ExcessMap.FindUpdateNeq; auto.
+        ++  destruct (equal s v0).
+        +++ subst. eapply ExcessCachedLoop; auto.
+        +++ apply ExcessCachedNe; auto.
+        ++  unfold res_cap in H.
+            specialize (H4 u v).
+            unfold res_cap in H4.
+            destruct ((u, v) ∈e es) eqn:E1.
         +++ apply Hvs in E1. tauto.
-        +++ destruct (Edge.equal (s,v0) (v1,u)).
+        +++ destruct (Edge.equal (s,v0) (v,u)).
             *   inv_clear e. cbn. tauto.
-            *   rewrite EdgeMap.FindReplaceNeq in H; auto.
-                apply H1 in H. cbn. tauto.
+            *   rewrite EdgeMap.FindUpdateNeq in H; auto.
+                apply H4 in H. cbn. tauto.
         ++  unfold res_cap in H. 
-            specialize (H1 u v1).
-            unfold res_cap in H1.
-            destruct ((u, v1) ∈e es) eqn:E1.
+            specialize (H4 u v).
+            unfold res_cap in H4.
+            destruct ((u, v) ∈e es) eqn:E1.
         +++ apply Hvs in E1. tauto.
-        +++ destruct (Edge.equal (s,v0) (v1,u)).
+        +++ destruct (Edge.equal (s,v0) (v,u)).
             *   inv_clear e. cbn. tauto.
-            *   rewrite EdgeMap.FindReplaceNeq in H; auto.
-                apply H1 in H. cbn. tauto.
-        ++  intros. 
-            destruct (Edge.equal (s,v0) (u,v1)).
-        +++ inv_clear e. rewrite EdgeMap.FindReplaceEq. lra.
-        +++ rewrite EdgeMap.FindReplaceNeq; auto.
-        ++  intros. 
-            destruct (equal v0 t); cbn in H; subst; auto.
-            destruct (equal v0 s); cbn in H; subst; auto.
-            destruct_guard_in H; auto.
-            destruct (equal n v0); cbn in H; subst; try  tauto.
-            erewrite VertexSet.MemAddNeq in H; auto.
+            *   rewrite EdgeMap.FindUpdateNeq in H; auto.
+                apply H4 in H. cbn. tauto.
         ++  intros. 
             destruct (equal v0 t); cbn in H; subst; auto.
             destruct (equal v0 s); cbn in H; subst; auto.
@@ -2033,127 +2549,231 @@ Module PR
             destruct (equal n v0); cbn in H; subst; try  tauto.
             erewrite VertexSet.MemAddNeq in H; auto.
         ++  cbn.
-            destruct (equal v0 t); cbn in H; subst.
-        +++ apply H4 in H. destruct H.
+            destruct (equal v0 t); subst.
+        +++ apply H5, H.
+        +++ destruct (equal v0 s); subst.
+            *   apply H5, H.
+            *   set (q := ExcessMap.find _ _ _) in H.
+                cbn in H.
+                destruct (0 <? q) eqn:E1.
+            **  destruct (equal n v0); subst; auto.
+                rewrite VertexSet.MemAddNeq in H; auto.
+            **  apply H5, H.
+        ++ destruct (equal v0 t); subst.
+        +++ apply H6 in H.
             unfold ActiveNode in H.
-            rewrite SumNoR; [|tauto].
-            destruct H. unfold excess in H6.
-            rewrite SumNoL; [|tauto]. auto.
-        +++ destruct (equal v0 s); cbn in H; subst; auto.
-            *   apply H4 in H. destruct H.
-                unfold ActiveNode in H. cbn in H.
-                subst.
-                rewrite SumNoR; [|tauto].
-                rewrite SumNoL; [|tauto].
+            destruct H, H, H0.
+            eapply Qlt_le_trans; eauto.
+            eapply NDFinitial; auto.
+        +++ destruct (equal v0 s); subst.
+            *   apply H6 in H. unfold ActiveNode in H. 
+                destruct H, H, H0.
+                eapply Qlt_le_trans; eauto.
+                eapply NDFinitial; auto.
+            *   rewrite ExcessMap.FindUpdateEq in H.
+                rewrite ExcessMap.FindUpdateNeq in H; auto.
+                set (q := Qred _) in H.
+                simpl in H.
+                destruct (0 <? q) eqn:E1;
+                [destruct (equal n v0)|].
+            **  subst.
+                destruct (QLt_spec 0 q); 
+                    [|inversion E1].
+                unfold q in q0.
+                rewrite Qred_correct in q0.
+                rewrite <- H3 in q0.
+                assert (s <> v0) by auto.
+                assert (In s (VertexSet.to_list vs)). {
+                    apply VertexSet.to_list_in. auto.
+                }
+                pose proof (PushExcessIn t1 (VertexSet.to_list vs) s v0 (c s v0) H0 (VertexSet.to_list_distinct _)).
+                destruct H9; destruct H9; [|contradiction].
+                unfold excess_loop in H10.
+                unfold excess in *.
+                rewrite Qred_correct in *.
+                rewrite H10.
                 lra.
-            *   destruct_guard_in H; destruct_guard_in E0;
-                try (inversion E0; fail).
-            **  set (d:= _ - _) in E1.
-                destruct (QLt_spec 0 d); try lra.
-                destruct (equal n v0); cbn in H; subst; auto.
-                rewrite SumNoR; [|tauto]. 
-                rewrite VertexSet.MemAddNeq in H; auto.
-                apply H4 in H. destruct H. cbn in H. destruct H.
-                rewrite SumNoL; [|tauto].
-                auto.
-            **  apply H4 in H. destruct H. cbn in H. destruct H.
-                rewrite SumNoL; [|tauto].
-                rewrite SumNoL in E1; [|tauto].
-                eapply InitialUpdateBigger  with (n:=n) (xs:=VertexSet.to_list vs) (v0:=v0) (s:=s)in H2. 
-                set (d:= _ - _) in E1.
-                destruct (QLt_spec 0 d); try lra.
-                clear -H2 H6.
-                set (q1:= QSumList _) in H2, H6.
-                set (q2:= QSumList _) in H2 |- *.
-                set (q3:= QSumList _) in H6 |- *.
-                lra.
-        ++  destruct (equal v0 t); subst; cbn in H.
-        +++ apply H4 in H. tauto.
-        +++ destruct (equal v0 s); subst; cbn in H.
-            *   apply H4 in H. tauto.
-            *   set (d := _ - _) in H.
-                destruct (0 <? d) eqn:E3.
-            **  destruct (equal n v0); cbn in H; subst; try  tauto.
-                rewrite VertexSet.MemAddNeq in H; auto.
-                apply H4 in H; tauto.
-            **  apply H4 in H. tauto.
-        ++  destruct (equal v0 t); subst; cbn in H.
-        +++ apply H4 in H. tauto.
-        +++ destruct (equal v0 s); subst; cbn in H.
-            *   apply H4 in H. tauto.
-            *   set (d := _ - _) in H.
-                destruct (0 <? d) eqn:E3.
-            **  destruct (equal n v0); cbn in H; subst; try  tauto.
-                rewrite VertexSet.MemAddNeq in H; auto.
-                apply H4 in H; tauto.
-            **  apply H4 in H. tauto.
+            **  rewrite VertexSet.MemAddNeq in H; auto.
+                apply H6 in H.
+                destruct H, H, H0.
+                eapply Qlt_le_trans; eauto.
+                eapply NDFinitial; auto.
+            **  apply H6 in H.
+                destruct H, H, H0.
+                eapply Qlt_le_trans; eauto.
+                eapply NDFinitial; auto.
+        ++  destruct (equal v0 t); subst.
+        +++ apply H6 in H. tauto.
+        +++ destruct (equal v0 s); subst.
+            *   apply H6 in H. tauto.
+            *   rewrite ExcessMap.FindUpdateEq in H.
+                rewrite ExcessMap.FindUpdateNeq in H; auto.
+                set (q := Qred _) in H.
+                simpl in H.
+                destruct (0 <? q) eqn:E1;
+                [destruct (equal n v0)|].
+            **  subst. tauto.
+            **  rewrite VertexSet.MemAddNeq in H; auto.
+                apply H6 in H.
+                destruct H, H, H0. tauto.
+            **  apply H6 in H.
+                destruct H, H, H0. tauto.
         ++  intros.
             destruct (equal v0 t); subst.
-        +++ apply H4. destruct H. split; try tauto.
-            unfold ActiveNode in H |- *.
-            destruct H. split; auto.
-            unfold excess in H6 |- *.
-            rewrite SumNoR in H6; [|tauto].
-            rewrite SumNoL in H6; [|tauto].
-            lra.
+        +++ apply H6. destruct H. split; try tauto.
         +++ destruct (equal v0 s); subst.
-            *   apply H4. destruct H. split; try tauto.
-                unfold ActiveNode in H |- *.
-                destruct H. split; auto.
-                unfold excess in H6 |- *.
-                rewrite SumNoR in H6; [|tauto].
-                rewrite SumNoL in H6; [|tauto].
+            *   apply H6. destruct H. split; try tauto.
+            *   rewrite ExcessMap.FindUpdateEq in H.
+                rewrite ExcessMap.FindUpdateNeq in H; auto.
+                set (q := Qred _) in H.
+                simpl in H.
+                destruct (0 <? q) eqn:E1;
+                [destruct (equal n v0)|].
+            **  subst. tauto.
+            **  simpl in H. rewrite VertexSet.MemAddNeq in H; auto.
+                apply H6 in H.
+                destruct H, H, H0. tauto.
+            **  apply H6 in H.
+                destruct H, H, H0. tauto.
+        ++  intros [K1 [K2 K3]].
+            destruct (equal v0 t); subst.
+        +++ unfold ActiveNode in K1.
+            apply H6. split; try tauto.
+            unfold ActiveNode.
+            split; try tauto. destruct K1.
+            clear -H0 K2 K3 J1 Hc. unfold excess in *.
+            rewrite Qred_correct in *.
+            destruct (equal s t); cbn; subst.
+            *   pose proof (PushExcessCycle t1 (VertexSet.to_list vs) t (c t t) n).
+                unfold excess_loop in *. rewrite H in H0. lra.
+            *   assert (In t (VertexSet.to_list vs)). { 
+                    apply VertexSet.to_list_in. auto.
+                }
+                pose proof (PushExcessOther t1 (VertexSet.to_list vs) s t n (c s t) n0 K3 K2 (VertexSet.to_list_distinct _)). 
+                unfold excess_loop in H1. rewrite H1 in H0.
                 lra.
-            *   set (d := excess _ _ _). 
-                destruct (0 <? d) eqn:E3.
-            **  destruct (equal n v0); subst.
-            *** apply VertexSet.MemAddEq.
-            *** cbn.
-                rewrite VertexSet.MemAddNeq; auto.
-                apply H4. split; try tauto.
-                unfold ActiveNode in H |- *.
-                destruct H. split; try tauto.
-                unfold excess in H |- *.
-                rewrite SumNoR in H; [|tauto].
-                rewrite SumNoL in H; [|tauto].
-                lra.
-            **  apply H4. split; try tauto.
-                unfold ActiveNode in H |- *.
-                destruct H. split; try tauto.
-                destruct H. 
-                destruct (QLt_spec 0 d); try lra.
-                destruct (equal n v0); subst.
-            *** clear -H6 n2. fold d in H6. lra.
-            *** cbn in *. clear d.
-                rewrite SumNoR in H6; [|tauto].
-                rewrite SumNoL in H6; [|tauto].
-                auto.
-            ++  unfold CapacityConstraint. intros.
-                destruct (Edge.equal (s,v0) (u, v1)).
-                *   inv_clear e.
-                    rewrite EdgeMap.FindReplaceEq. lra.
-                *   rewrite EdgeMap.FindReplaceNeq; auto.
-            ++  unfold NonDeficientFlowConstraint. intros.
-                destruct H5, H5.
-                unfold NonDeficientFlowConstraint in H7.
-                specialize (H7 _ H H0). clear -H7 H0 H2 Hc.
-                unfold excess in *.
-                destruct (equal v0 v1); subst.
-            +++ rewrite SumNoL; auto.
-                eapply InitialUpdateBigger  with (n:=v1) (xs:=VertexSet.to_list vs) (v0:=v1) (s:=s)in H2.
-                set (q1:= QSumList _) in H2, H7.
-                set (q2:= QSumList _) in H2 |- *.
-                set (q3:= QSumList _) in H2, H7 |- *.
+        +++ destruct (equal v0 s); subst.
+            *   unfold ActiveNode in K1.
+                apply H6. split; try tauto.
+                unfold ActiveNode.
+                split; try tauto. destruct K1.
+                clear -H0 K2 K3 J1 Hc. unfold excess in *.
+                rewrite Qred_correct in *.
+                pose proof (PushExcessCycle t1 (VertexSet.to_list vs) s (c s s) n).
+                unfold excess_loop in *. rewrite H in H0. lra.
+            *   rewrite ExcessMap.FindUpdateEq.
+                rewrite ExcessMap.FindUpdateNeq; auto.
+                destruct (0 <? Qred (t2[v0]e + c s v0)) eqn:E3.
+            ** destruct (equal n v0); subst.
+            *** cbn. rewrite VertexSet.MemAddEq. auto.
+            *** cbn. rewrite VertexSet.MemAddNeq; auto. apply H6. split; try tauto.
+                unfold ActiveNode in K1 |- *. destruct K1. split; auto.
+                unfold excess in *. rewrite Qred_correct in *.
+                assert (G1: s<>v0) by auto.
+                assert (G2: n<>s) by auto.
+                assert (G3: n<>v0) by auto.
+                pose proof (PushExcessOther t1 (VertexSet.to_list vs) s v0 n (c s v0) G1 G2 G3 (VertexSet.to_list_distinct _)).                 
+                unfold excess_loop in *. rewrite H8 in H0. lra.
+            **  destruct (equal n v0); cbn; subst.
+            *** apply H6. split; try tauto.
+                unfold ActiveNode in K1 |- *. destruct K1. split; auto.
+                rewrite <- H3 in E3.
+                destruct (QLt_spec 0 (Qred (excess (vs, es, c, s, t) t1 v0 + c s v0))); [inversion E3|].
+                exfalso.
+                unfold excess in *. rewrite Qred_correct in *.
+                assert (G1: s<>v0) by auto.
+                assert (In s (VertexSet.to_list vs)). { 
+                    apply VertexSet.to_list_in. auto.
+                }
+                pose proof (PushExcessIn t1 (VertexSet.to_list vs) s v0 (c s v0) G1 (VertexSet.to_list_distinct _)).
+                destruct H9; destruct H9; [|contradiction].
+                unfold excess_loop in *. 
+                rewrite Qred_correct in *. rewrite H10 in H0.
                 lra. 
-            +++ rewrite SumNoL; auto.
-                rewrite SumNoR; auto.
-            ++  destruct (Edge.equal (s,v0) (u,v1)).
-            +++ inv_clear e. rewrite EdgeMap.FindReplaceEq. apply Hc.
-            +++ rewrite EdgeMap.FindReplaceNeq; auto. 
-                destruct H5, H. unfold FlowMapPositiveConstraint in H0.
-                destruct (H0 u v1). auto.
-    Qed. *)
+            *** apply H6. split; try tauto.
+                unfold ActiveNode in K1 |- *. destruct K1. split; auto.
+                rewrite <- H3 in E3.
+                destruct (QLt_spec 0 (Qred (excess (vs, es, c, s, t) t1 v0 + c s v0))); [inversion E3|].
+                unfold excess in *. rewrite Qred_correct in *.
+                assert (G1: s<>v0) by auto.
+                assert (G2: n<>s) by auto.
+                assert (G3: n<>v0) by auto.
+                pose proof (PushExcessOther t1 (VertexSet.to_list vs) s v0 n (c s v0) G1 G2 G3 (VertexSet.to_list_distinct _)).                 
+                unfold excess_loop in *. 
+                rewrite Qred_correct in *. rewrite H8 in H0.
+                lra. 
+        ++  unfold CapacityConstraint. intros.
+            destruct H7. unfold PreFlowCond in H0.
+            destruct H0.
+            specialize (H0 u v H).
+            destruct (Edge.equal (u,v) (s,v0) ).
+        +++ inv_clear e.
+            rewrite EdgeMap.FindUpdateEq.
+            specialize (H1 _ _ Ds1). 
+            rewrite Qred_correct.
+            lra.
+        +++ rewrite EdgeMap.FindUpdateNeq; auto.
+        ++  unfold NonDeficientFlowConstraint. intros.
+            destruct H7.  destruct H7. unfold NonDeficientFlowConstraint in H9.
+            specialize (H9 v H H0).
+            unfold excess in *.
+            destruct (equal v0 v); subst.
+        +++ rewrite SumNoUpdateL; auto. 
+            rewrite Qred_correct. unfold R in *.
+            specialize (Hc s v).
+            rewrite Qred_correct in *.
+            eapply InitialUpdateBigger with (n:=v) (xs:=VertexSet.to_list vs) (s:=s) (v0:=v) (f:=t1) in Hc.
+            clear -Hc H9. lra.
+        +++ rewrite SumNoUpdateL; auto.
+            rewrite SumNoUpdateR; auto.
+        ++  unfold CapacityConstraint. intros.
+            destruct (Edge.equal (s,v0) (u, v)).
+            *   inv_clear e.
+                rewrite EdgeMap.FindUpdateEq.
+                rewrite Qred_correct.
+                destruct H7, H. 
+                specialize (H0 u v).
+                lra.
+            *   rewrite EdgeMap.FindUpdateNeq; auto.
+                destruct H7, H. 
+                specialize (H0 u v).
+                lra.
+    Qed.
 
+
+    Lemma InitialPushResCap0Helper vs es c s t xs: 
+    Distinct xs -> forall f' ac' e', 
+    fold_right (fun x y => initial_push_step (vs,es,c,s,t) y x) (EdgeMap.empty 0, ExcessMap.empty 0, VertexSet.empty) xs = (f',e',ac') ->
+    (forall v, In (s,v) xs -> f'[(s, v)]f == c s v) /\
+    (forall u v, ~In (u,v) xs -> f'[(u, v)]f == 0).
+    Proof.
+        induction xs; intros; split; intros.
+        +   inv_clear H1.
+        +   cbn in H0. inv_clear H0. rewrite EdgeMap.FindEmpty. lra.
+        +   simpl in H0. 
+            destruct (fold_right _ _ xs) eqn:E1. destruct a, p.
+            destruct H as [D1 D2].
+            eapply IHxs in D2 as [C1 C2]; [|reflexivity].
+            unfold initial_push_step in H0.
+            repeat rewrite pair_equal_spec in H0. destruct H0, H; subst.
+            destruct (Edge.equal (v0,v1) (s,v)).
+        ++  inv_clear e.
+            rewrite EdgeMap.FindUpdateEq, C2; auto. 
+            rewrite Qred_correct. lra.
+        ++  rewrite EdgeMap.FindUpdateNeq; auto.
+            destruct H1.
+        +++ inv_clear H. destruct n; auto.
+        +++ apply C1; auto.
+        +   simpl in H0. 
+            destruct (fold_right _ _ xs) eqn:E1. destruct a, p.
+            destruct H as [D1 D2].
+            eapply IHxs in D2 as [C1 C2]; [|reflexivity].
+            unfold initial_push_step in H0.
+            repeat rewrite pair_equal_spec in H0. destruct H0, H; subst.
+            rewrite EdgeMap.FindUpdateNeq.
+        ++  apply C2. cbn in H1. tauto.
+        ++  intros C. inv_clear C.  cbn in H1. tauto.
+    Qed.
 
     (* Kui Iga serva e korral e kuulub hulka e' või e'', siis ta kuulub hulka es ja iga tipu v korral, kui puudub serv
     (s, v), siis sellel serva läbilaskevõime on 0 ning 
@@ -2163,62 +2783,31 @@ Module PR
         v<>s -> forall  f' e' ac',
         initial_push (vs,es,c,s,t) = (f',e',ac') ->
         res_cap (vs,es,c,s,t) f' s v == 0.
-    Proof. Admitted.
-        (* unfold initial_push.
+    Proof.
+        unfold initial_push.
         set (es' := EdgeSet.filter _ _).
         rewrite <- fold_left_rev_right.
-        set (xs := rev _). intros L.
-        destruct ((s, v) ∈e es) eqn:E.
-        + assert (K: In (s,v) xs). {
-            unfold xs. rewrite <- in_rev.
-            apply EdgeSet.to_list_in. unfold es'.
-            apply EdgeSet.filter_in; auto. 
-            apply eqb_refl.
-        }
-        generalize dependent K.
-        set (F := (fun y => _)).
-        induction xs; intros K f' e' ac' H.
-            - inversion K.
-            - cbn in K, H. 
-            destruct (fold_right F (EdgeMap.empty 0, ExcessMap.empty 0, VertexSet.empty) xs) as [[t0 t1] t2] eqn:E1.
-            cbn in K. destruct a. destruct K.
-                * inv_clear H0. inv_clear H. cbn. rewrite E.
-                rewrite EdgeMap.FindReplaceEq. lra.
-                * inv_clear H. cbn. rewrite E.
-                eapply IHxs with (f':=t0) (ac':=t1) in H0; auto.
-                unfold res_cap in H0.
-                rewrite E in H0.
-                destruct (Edge.equal (s,v) (v0,v1)).
-                ** inv_clear e. rewrite EdgeMap.FindReplaceEq. lra.   
-                ** rewrite EdgeMap.FindReplaceNeq; auto.
-        + set (F := (fun y => _)).
-        assert (G : forall x, In x xs -> fst x = s). {
-            intros. unfold xs in H. rewrite <- in_rev in H.
-            apply EdgeSet.to_list_in in H. unfold es' in H.
-            eapply EdgeSet.in_filter in H; auto.
-            destruct x. destruct (equal s v0); subst; try lia.
-            reflexivity. 
-        }
-        induction xs; intros f' ac' H.
-            - cbn in H. inv_clear H. cbn. rewrite E.
-            rewrite EdgeMap.FindEmpty. lra.
-            - cbn in  H.
-            destruct (fold_right F (EdgeMap.empty, VertexSet.empty) xs) eqn:E1.
-            destruct a.
-            assert ((t0, t1) = (t0, t1)) by reflexivity.
-            apply IHxs in H0; auto.
-                * cbn in H0 |- *.
-                rewrite E in H0 |- *.
-                cbn in H. inv_clear H.
-                destruct (Edge.equal (v0, v1) (v, s)).
-                    ** exfalso. inv_clear e.
-                    apply L. erewrite <- (G (v, s)); eauto. constructor; auto.
-                    ** rewrite EdgeMap.FindReplaceNeq; auto. 
-                * intros. apply G. constructor 2; auto.
-    Qed. *)
+        set (xs := rev _). intros.
+        apply InitialPushResCap0Helper in H0.
+        +   destruct H0. unfold res_cap.
+            destruct ((s, v) ∈e es) eqn:E.
+        ++  rewrite H0; [lra|]. unfold xs. rewrite <- in_rev.
+            unfold es'. apply EdgeSet.to_list_in.
+            rewrite EdgeSet.filter_in; auto. apply eqb_refl.
+        ++  rewrite H1; [lra|]. intro C.
+            unfold xs in C.
+            rewrite <- in_rev in C.
+            unfold es' in C. apply EdgeSet.to_list_in in C.
+            eapply EdgeSet.in_filter in C.
+            destruct C.
+            destruct (equal s v); subst; try tauto.
+            inv_clear H3.
+        +   unfold xs. apply rev_distinct. unfold es'.
+            apply EdgeSet.to_list_distinct.
+    Qed.
 
     (* Kui tipud u ja v kuuluvad tippude hulka ning servade (u, v) läbilaskevõime on mittenegatiivne ja sisend pole väljund ning
-     gpr_trace tagastab voo f', ülejäägid e' ja kõrgused l', siis järeldub, et aktiivsed tipud on ainult sisend või väljund,
+     gpr tagastab voo f', ülejäägid e' ja kõrgused l', siis järeldub, et aktiivsed tipud on ainult sisend või väljund,
      on täidetud voo nõuded ja on säilitatud invariandid, et sisendi kõrgus on võrdne tippude arvuga ja väljundi kõrgus on 0 *)
     Lemma FlowConservationGprMain fn:
         let '((vs, es),c,s,t) := fn in
@@ -2227,40 +2816,43 @@ Module PR
         (forall u v, c u v >= 0) ->
         s<>t ->
         forall f' e' l', 
-        gpr_trace fn = (Some (f',e',l')) ->
-        (forall n, ActiveNode fn f' e' n -> n=t \/ n=s) /\ 
+        gpr fn = (Some (f',e',l')) ->
+        (forall n, ActiveNode fn f' n -> n=t \/ n=s) /\ 
         FlowConservationConstraint fn f' e' /\
-        (VertexSet.size vs = VertexMap.find 0 l' s)%nat /\ (O=VertexMap.find 0 l' t)%nat.
-    Proof. Admitted.
-        (* destruct fn as [[[[vs es] c] s] t]. 
-        intros H H0 H1 Hst f' e' l' tr' H2. unfold gpr_trace in H2.
-        destruct_guard_in H2. destruct p as [f'' e''].
-        eapply (InitialGpr (vs, es, c, s, t)) in E0 as P. eauto.
-        + destruct P, H4, H5, H6, H7.
-        eapply (FlowConservationGpr (vs, es, c, s, t)) in H2. eauto.
-            - destruct H2, H9, H10. split. split; auto.
-            simpl in H10, H11. rewrite NMap.FindReplaceEq in H10.
-            rewrite NMap.FindReplaceNeq, NMap.FindEmpty in H11; auto.
-            - simpl. unfold NoSteepArc. intros. simpl. destruct (equal u s).
-                * subst. rewrite NMap.FindReplaceEq.
-                destruct (equal v s);
-                [subst; rewrite NMap.FindReplaceEq; lia|].        
-                unfold PreFlowCond in H7.
-                    eapply InitialPushResCap0 with (v := v) in E0; auto.
-                    set (r := res_cap _) in *. lra.
-                * rewrite NMap.FindReplaceNeq, NMap.FindEmpty; auto. lia.
-            - simpl. unfold ValidLabeling. intros. simpl. destruct (equal u s), (equal v s).
-                * subst. lia.
-                * subst. unfold PR.E in H9. eapply ESet.in_filter in H9. destruct H9.
-                eapply InitialPushResCap0 with (v := v) in E0; auto.
-                unfold res_cap in E0. rewrite H9 in E0. 
-                eapply (reflect_iff _ _ (QLt_spec _ _)) in H10. lra.
-                * subst. rewrite NMap.FindReplaceNeq, NMap.FindEmpty; auto. lia.
-                * rewrite NMap.FindReplaceNeq, NMap.FindEmpty; auto. lia.
-    Qed. *)
+        (VertexSet.size vs = l'[s]l)%nat /\ (O=l'[t]l)%nat.
+    Proof.
+        destruct fn as [[[[vs es] c] s] t]. 
+        intros H H0 H1 Hst f' l' eM' H2. unfold gpr in H2.
+        destruct_guard_in H2. destruct p. 
+        eapply (InitialGpr (vs, es, c, s, t)) in E0 as P; eauto.
+        +   destruct P, H4, H5, H6, H7, H8. 
+            eapply (FlowConservationGpr (vs, es, c, s, t)) in H2; eauto.
+        -   destruct H2, H10, H11, H12, H13. split; auto. split; auto.
+            rewrite VertexMap.FindReplaceEq in H13.
+            rewrite VertexMap.FindReplaceNeq, VertexMap.FindEmpty in H14; auto.
+        -   unfold NoSteepArc. intros. destruct (equal u s).
+        *   subst. rewrite VertexMap.FindReplaceEq.
+            destruct (equal v s);
+                [subst;rewrite VertexMap.FindReplaceEq;lia|].        
+            unfold PreFlowCond in H8. 
+            eapply InitialPushResCap0 with (v := v) in E0; auto.
+            lra.
+        *   rewrite VertexMap.FindReplaceNeq, VertexMap.FindEmpty; auto. lia.
+        -   unfold ValidLabeling. intros. 
+            destruct (equal u s), (equal v s).
+        *   subst. lia.
+        *   subst. unfold PR.E in H10. eapply EdgeSet.in_filter in H10. 
+            destruct H10.
+            eapply InitialPushResCap0 with (v := v) in E0; auto.
+            unfold res_cap in E0. rewrite H10 in E0. 
+            eapply (reflect_iff _ _ (QLt_spec _ _)) in H11. lra.
+         *  subst. rewrite VertexMap.FindReplaceNeq, VertexMap.FindEmpty; auto. lia.
+         *  rewrite VertexMap.FindReplaceNeq, VertexMap.FindEmpty; auto. lia.
+    Qed.
 
 End PR.
 
+Import ListNotations.
 Module Edge := Tuple (Nat) (Nat).
 
 Module EdgeMap : MapSpec(Edge).
@@ -2284,14 +2876,13 @@ Module VertexSet : SetSpec(Nat).
 End VertexSet.
 
 Module PRNat := PR (Nat) (Edge) (EdgeMap) (VertexMap) (ExcessMap) (EdgeSet) (VertexSet).
-
-Import ListNotations.
 Open Scope nat.
 
 Definition vset_list := fold_right VertexSet.add VertexSet.empty.
 Definition eset_list := fold_right EdgeSet.add EdgeSet.empty.
 
-(* Näited, et algoritm tagastab korrektse maksimaalse voo*)
+(* Näidistranspordivõrgud*)
+
 Definition FN1 : PRNat.FlowNet := 
     let c := fun (x y: nat) => 10%Q in
     ((vset_list [0;1],eset_list[(0,1)]),c,0,1).
@@ -2312,7 +2903,7 @@ Definition FN2 : PRNat.FlowNet :=
     in
     ((vset_list [0;1;2;3;4;5]),(eset_list[(0,1);(0,3);(1,2);(2,3);(2,5);(3,4);(4,1);(4,5)]),c,0,5).
 
-(* Definition FN3 : PRNat.FlowNet := 
+Definition FN3 : PRNat.FlowNet := 
     let c := fun (x y: nat) => 
         match x, y with
         | 0, 1 => 4%Q
@@ -2324,11 +2915,11 @@ Definition FN2 : PRNat.FlowNet :=
         | _, _ => 0%Q
         end
     in
-    (([0;1;2;3;4;5],[(0,1);(0,2);(1,3);(1,4);(2,4);(3,5);(4,5)]),c,0,5). *)
+    ((vset_list [0;1;2;3;4;5],eset_list[(0,1);(0,2);(1,3);(1,4);(2,4);(3,5);(4,5)]),c,0,5).
 
-(* Compute (PRNat.gpr_trace FN1).
+(* Compute (PRNat.gpr FN1). *)
 
-Compute (PRNat.gpr_trace FN2).
+(* Compute (PRNat.gpr FN2).
 
 Compute (@PRNat.excess FN1 [(0,1,10%Q)] 1).
 
@@ -2339,7 +2930,7 @@ Compute (@PRNat.excess FN2 [(0, 1, 10%Q); (0, 3, 4%Q); (3, 4, 7%Q); (
 Compute (@PRNat.excess FN3 [(0, 1, 4%Q); (0, 2, 2%Q); 
 (2, 4, 2%Q); (4, 5, 2%Q); (1, 3, 4%Q); (3, 5, 4%Q)] 5). *)
 
-(* Definition FN_excess : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * nat)%type :=
+Definition FN_excess :=
   let c := fun (x y : nat) =>
     match x, y with
     | 0, 5 => 19%Q
@@ -2354,9 +2945,9 @@ Compute (@PRNat.excess FN3 [(0, 1, 4%Q); (0, 2, 2%Q);
     | _, _ => 0%Q
     end
   in
-  (([0;1;2;3;4;5;6],[(0,5);(1,2);(1,4);(2,3);(3,4);(3,6);(4,2);(5,1);(5,2)]), c, 0, 6). *)
+  ((vset_list [0;1;2;3;4;5;6], eset_list [(0,5);(1,2);(1,4);(2,3);(3,4);(3,6);(4,2);(5,1);(5,2)]), c, 0, 6).
 
-(* Definition FN_rand_test : (list nat * list (nat * nat) * (nat -> nat -> Q) * nat * nat)%type :=
+Definition FN_rand_test :=
   let c := fun (x y : nat) =>
     match x, y with
     | 0, 1 => 8%Q
@@ -2365,37 +2956,33 @@ Compute (@PRNat.excess FN3 [(0, 1, 4%Q); (0, 2, 2%Q);
     | _, _ => 0%Q
     end
   in
-  (([0;1;2],[(0,1);(0,2);(1,2)]), c, 0, 2). *)
+  ((vset_list[0;1;2],eset_list[(0,1);(0,2);(1,2)]), c, 0, 2).
 
-(* Compute (@PRNat.excess FN_excess [(0, 5, 19%Q);
-(1, 2, 19%Q);
-(1, 4, 13%Q);
-(2, 3, 2%Q);
-(3, 4, 8%Q);
-(3, 6, 2%Q);
-(4, 2, 18%Q);
-(5, 1, 5%Q);
-(5, 2, 10%Q)] 6). *)
 (* Ekstraheerimine *)
 
-(* Print Lists.List. *)
+(* Lihtsamate andmetüüpide jaoks abiteegid *)
 Extraction Language OCaml.
-(* Require Import ZArith. *)
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlZInt.
 Require Import ExtrOcamlNatInt.
+
+(* Ratsionaalarvud *)
 Extract Inductive Q => "(int * int)" [ "" ].
+
+(* Järjendite pikkused ja map-funktsioon. *)
 Extract Constant length => "List.length".
 Extract Constant map => "List.map".
+
 Set Extraction File Comment "Extracted from the push-relabel algorithm proof in Rocq.".
 
-
+(* Andmestruktuuride VertexMap, EdgeMap ja ExcessMap ekstraheerimine. *)
 Extract Constant VertexMap.t "'e" => "'e VertexMap'.t".
 Extract Constant VertexMap.empty => "fun _d -> VertexMap'.create 1".
 Extract Constant VertexMap.find => 
     "fun d k m -> 
     try VertexMap'.find k m with Not_found -> d".
 Extract Constant VertexMap.replace => "fun _d k v m -> VertexMap'.replace m k v; m".
+Extract Constant VertexMap.remove => "fun d k m -> VertexMap'.replace m k d; m".
 Extract Constant VertexMap.update => 
     "fun d k f m -> 
         let old = try VertexMap'.find m k with Not_found -> d
@@ -2407,6 +2994,7 @@ Extract Constant EdgeMap.find =>
     "fun d k m -> 
     try EdgeMap'.find k m with Not_found -> d".
 Extract Constant EdgeMap.replace => "fun _d k v m -> EdgeMap'.replace m k v; m".
+Extract Constant EdgeMap.remove => "fun d k m -> EdgeMap'.replace m k d; m".
 Extract Constant EdgeMap.update => 
     "fun d k f m -> 
         let old = try EdgeMap'.find m k with Not_found -> d
@@ -2418,11 +3006,13 @@ Extract Constant ExcessMap.find =>
     "fun d k m -> 
     try ExcessMap'.find k m with Not_found -> d".
 Extract Constant ExcessMap.replace => "fun _d k v m -> ExcessMap'.replace m k v; m".
+Extract Constant ExcessMap.remove => "fun d k m -> ExcessMap'.replace m k d; m".
 Extract Constant ExcessMap.update => 
     "fun d k f m -> 
         let old = try ExcessMap'.find m k with Not_found -> d
         in ExcessMap'.replace m k (f old); m".
 
+(* Tippude hulga VertexSet ja kaarte hulga EdgeSet ekstraheerimine *)
 Extract Constant VertexSet.t => "VertexSet'.t".
 Extract Constant VertexSet.empty => "VertexSet'.empty".
 Extract Constant VertexSet.remove => "VertexSet'.remove".
@@ -2452,39 +3042,8 @@ Extract Constant EdgeSet.to_list => "EdgeSet'.elements".
 Extract Constant EdgeSet.find_first => "EdgeSet'.find_first_opt".
 Extract Constant EdgeSet.size => "EdgeSet'.cardinal".
 
-
-Recursive Extraction PRNat.gpr_trace.
-
+(* Recursive Extraction PRNat.gpr. *)
 
 
 
-
-
-(* Näited erinevatest arvutüüpidest *)
-
-Definition example_Q : Q := (7#12).
-Definition example_Q2 : Q := 6.
-Definition example_Z : Z := 45.
-Definition example_pos : positive := 5.
-Definition example_nat : nat := 10.
-Definition example_R : PRNat.R := 6%Q.
-Extraction example_nat.
-
-(* Transpordivõrgu FN2 ekstraheerimine *)
-
-(* 5 katse põhjal keskmine ajakuju FN2 võrgul:
-Algne: 0.0994ms
-Muudatused 1: 0.0752ms
-Muudatused 2: 0.0670ms
-Muudatused 3: 0.0276ms
-
-1: täis- ja ratsionaalarvud muudetud + tõeväärtused, listid jne (OCamlBasic jne)
-2: VertexMap ja EdgeMap asemel OCamli mapid/paisktabelid.
-3: OCamlis servade compare ja equal, listide length ja map asendatud. 
-    Excessi cache-mine mapiga, VertexSet ja EdgeSet on hulgad.
-*)
-
-
-Recursive Extraction PRNat.gpr_trace.
-(* Recursive Extraction FN_rand40_250. *)
-(* dune exec push-relabel *)
+Recursive Extraction FN_testing.

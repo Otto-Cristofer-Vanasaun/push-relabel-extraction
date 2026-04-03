@@ -2010,4 +2010,8 @@ Compute (@PRNat.excess FN_rand_test [(0, 1, 8%Q); (0, 2, 19%Q); (1, 2, 8%Q)] 2).
 
 (* Ekstraheerimine *)
 Require Extraction.
+
 Recursive Extraction PRNat.gpr_trace.
+
+
+Recursive Extraction FN_testing.
