@@ -510,31 +510,31 @@ module Coq_Nat =
  end
 
 module Tuple =
- functor (T__21:T) ->
+ functor (T__6:T) ->
  functor (U:T) ->
  struct
-  type coq_V = T__21.coq_V * U.coq_V
+  type coq_V = T__6.coq_V * U.coq_V
 
-  (** val eqb : (T__21.coq_V * U.coq_V) -> (T__21.coq_V * U.coq_V) -> bool **)
+  (** val eqb : (T__6.coq_V * U.coq_V) -> (T__6.coq_V * U.coq_V) -> bool **)
 
   let eqb pat pat0 =
-    let (a, b) = pat in let (c, d) = pat0 in (&&) (T__21.eqb a c) (U.eqb b d)
+    let (a, b) = pat in let (c, d) = pat0 in (&&) (T__6.eqb a c) (U.eqb b d)
 
   (** val equal : coq_V -> coq_V -> reflect **)
 
   let equal x y =
     let (v, v0) = x in
     let (v1, v2) = y in
-    let r = T__21.equal v v1 in
+    let r = T__6.equal v v1 in
     (match r with
      | ReflectT -> U.equal v0 v2
      | ReflectF -> ReflectF)
  end
 
 module PR =
- functor (T__23:T) ->
+ functor (T__8:T) ->
  functor (Edge:sig
-  type coq_V = T__23.coq_V * T__23.coq_V
+  type coq_V = T__8.coq_V * T__8.coq_V
 
   val eqb : coq_V -> coq_V -> bool
 
@@ -558,26 +558,26 @@ module PR =
 
   val empty : 'a1 -> 'a1 t
 
-  val replace : 'a1 -> T__23.coq_V -> 'a1 -> 'a1 t -> 'a1 t
+  val replace : 'a1 -> T__8.coq_V -> 'a1 -> 'a1 t -> 'a1 t
 
-  val find : 'a1 -> 'a1 t -> T__23.coq_V -> 'a1
+  val find : 'a1 -> 'a1 t -> T__8.coq_V -> 'a1
 
-  val update : 'a1 -> T__23.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
+  val update : 'a1 -> T__8.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
 
-  val remove : 'a1 -> T__23.coq_V -> 'a1 t -> 'a1 t
+  val remove : 'a1 -> T__8.coq_V -> 'a1 t -> 'a1 t
  end) ->
  functor (ExcessMap:sig
   type 'e t
 
   val empty : 'a1 -> 'a1 t
 
-  val replace : 'a1 -> T__23.coq_V -> 'a1 -> 'a1 t -> 'a1 t
+  val replace : 'a1 -> T__8.coq_V -> 'a1 -> 'a1 t -> 'a1 t
 
-  val find : 'a1 -> 'a1 t -> T__23.coq_V -> 'a1
+  val find : 'a1 -> 'a1 t -> T__8.coq_V -> 'a1
 
-  val update : 'a1 -> T__23.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
+  val update : 'a1 -> T__8.coq_V -> ('a1 -> 'a1) -> 'a1 t -> 'a1 t
 
-  val remove : 'a1 -> T__23.coq_V -> 'a1 t -> 'a1 t
+  val remove : 'a1 -> T__8.coq_V -> 'a1 t -> 'a1 t
  end) ->
  functor (EdgeSet:sig
   type t
@@ -605,19 +605,19 @@ module PR =
 
   val empty : t
 
-  val add : T__23.coq_V -> t -> t
+  val add : T__8.coq_V -> t -> t
 
-  val remove : T__23.coq_V -> t -> t
+  val remove : T__8.coq_V -> t -> t
 
-  val mem : T__23.coq_V -> t -> bool
+  val mem : T__8.coq_V -> t -> bool
 
-  val choice : t -> (T__23.coq_V * t) option
+  val choice : t -> (T__8.coq_V * t) option
 
-  val filter : (T__23.coq_V -> bool) -> t -> t
+  val filter : (T__8.coq_V -> bool) -> t -> t
 
-  val to_list : t -> T__23.coq_V list
+  val to_list : t -> T__8.coq_V list
 
-  val find_first : (T__23.coq_V -> bool) -> t -> T__23.coq_V option
+  val find_first : (T__8.coq_V -> bool) -> t -> T__8.coq_V option
 
   val size : t -> int
  end) ->
@@ -627,20 +627,20 @@ module PR =
   type coq_Graph = VertexSet.t * EdgeSet.t
 
   type coq_FlowNet =
-    ((coq_Graph * (T__23.coq_V -> T__23.coq_V ->
-    coq_R)) * T__23.coq_V) * T__23.coq_V
+    ((coq_Graph * (T__8.coq_V -> T__8.coq_V ->
+    coq_R)) * T__8.coq_V) * T__8.coq_V
 
   (** val nodes : coq_FlowNet -> VertexSet.t **)
 
   let nodes = function
   | (p, _) -> let (p0, _) = p in let (g, _) = p0 in let (vs, _) = g in vs
 
-  (** val sink : coq_FlowNet -> T__23.coq_V **)
+  (** val sink : coq_FlowNet -> T__8.coq_V **)
 
   let sink = function
   | (_, t0) -> t0
 
-  (** val source : coq_FlowNet -> T__23.coq_V **)
+  (** val source : coq_FlowNet -> T__8.coq_V **)
 
   let source = function
   | (p, _) -> let (_, s) = p in s
@@ -674,7 +674,7 @@ module PR =
   let coq_QSumList =
     fold_right qplus (0, 1)
 
-  (** val excess : coq_FlowNet -> coq_R EdgeMap.t -> T__23.coq_V -> coq_R **)
+  (** val excess : coq_FlowNet -> coq_R EdgeMap.t -> T__8.coq_V -> coq_R **)
 
   let excess fn f u =
     let (p, _) = fn in
@@ -689,7 +689,7 @@ module PR =
           (map (fun v -> EdgeMap.find (0, 1) f (u, v)) (VertexSet.to_list vs))))
 
   (** val excess_update :
-      coq_R ExcessMap.t -> T__23.coq_V -> (int * int) -> T__23.coq_V -> coq_R
+      coq_R ExcessMap.t -> T__8.coq_V -> (int * int) -> T__8.coq_V -> coq_R
       ExcessMap.t **)
 
   let excess_update e u delta v =
@@ -699,7 +699,7 @@ module PR =
     ExcessMap.update (0, 1) v (fun x -> qred (qplus x delta)) new_map_u
 
   (** val res_cap :
-      coq_FlowNet -> coq_R EdgeMap.t -> T__23.coq_V -> T__23.coq_V -> coq_R **)
+      coq_FlowNet -> coq_R EdgeMap.t -> T__8.coq_V -> T__8.coq_V -> coq_R **)
 
   let res_cap fn f u v =
     let (p, _) = fn in
@@ -729,9 +729,9 @@ module PR =
     let (vs, _) = g in ((((vs, (coq_E fn f)), (res_cap fn f)), s), t0)
 
   (** val push :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      coq_R)) * T__23.coq_V) * T__23.coq_V) -> coq_R EdgeMap.t -> (int * int)
-      ExcessMap.t -> T__23.coq_V -> T__23.coq_V -> coq_R EdgeMap.t * coq_R
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      coq_R)) * T__8.coq_V) * T__8.coq_V) -> coq_R EdgeMap.t -> (int * int)
+      ExcessMap.t -> T__8.coq_V -> T__8.coq_V -> coq_R EdgeMap.t * coq_R
       ExcessMap.t **)
 
   let push fn f e u v =
@@ -748,8 +748,8 @@ module PR =
            new_excessmap)
 
   (** val smallest_rank :
-      int VertexMap.t -> T__23.coq_V list -> T__23.coq_V option ->
-      T__23.coq_V option **)
+      int VertexMap.t -> T__8.coq_V list -> T__8.coq_V option -> T__8.coq_V
+      option **)
 
   let rec smallest_rank l xs r =
     match xs with
@@ -763,8 +763,8 @@ module PR =
        | None -> smallest_rank l xs0 (Some v))
 
   (** val relabel_find :
-      coq_FlowNet -> coq_R EdgeMap.t -> int VertexMap.t -> T__23.coq_V ->
-      VertexSet.t -> T__23.coq_V option **)
+      coq_FlowNet -> coq_R EdgeMap.t -> int VertexMap.t -> T__8.coq_V ->
+      VertexSet.t -> T__8.coq_V option **)
 
   let relabel_find fn f l u vs =
     let fvs = VertexSet.filter (fun v -> coq_QLt (0, 1) (res_cap fn f u v)) vs
@@ -772,9 +772,9 @@ module PR =
     smallest_rank l (VertexSet.to_list fvs) None
 
   (** val relabel :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      coq_R)) * T__23.coq_V) * T__23.coq_V) -> coq_R EdgeMap.t -> int
-      VertexMap.t -> T__23.coq_V -> int VertexMap.t option **)
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      coq_R)) * T__8.coq_V) * T__8.coq_V) -> coq_R EdgeMap.t -> int
+      VertexMap.t -> T__8.coq_V -> int VertexMap.t option **)
 
   let relabel fn f l u =
     let (y, _) = fn in
@@ -789,9 +789,9 @@ module PR =
      | None -> None)
 
   (** val find_push_node :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      coq_R)) * T__23.coq_V) * T__23.coq_V) -> coq_R EdgeMap.t -> int
-      VertexMap.t -> T__23.coq_V -> VertexSet.t -> T__23.coq_V option **)
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      coq_R)) * T__8.coq_V) * T__8.coq_V) -> coq_R EdgeMap.t -> int
+      VertexMap.t -> T__8.coq_V -> VertexSet.t -> T__8.coq_V option **)
 
   let find_push_node fn f l u vs' =
     VertexSet.find_first (fun v ->
@@ -801,18 +801,18 @@ module PR =
         (coq_QLt (0, 1) (res_cap fn f u v))) vs'
 
   (** val has_excess_not_sink :
-      coq_FlowNet -> coq_R ExcessMap.t -> T__23.coq_V -> bool **)
+      coq_FlowNet -> coq_R ExcessMap.t -> T__8.coq_V -> bool **)
 
   let has_excess_not_sink fn e v =
     let (p, t0) = fn in
     let (_, s) = p in
-    if (||) (T__23.eqb v t0) (T__23.eqb v s)
+    if (||) (T__8.eqb v t0) (T__8.eqb v s)
     then false
     else coq_QLt (0, 1) (ExcessMap.find (0, 1) e v)
 
   (** val gpr_helper :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      coq_R)) * T__23.coq_V) * T__23.coq_V) -> coq_R EdgeMap.t -> (int * int)
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      coq_R)) * T__8.coq_V) * T__8.coq_V) -> coq_R EdgeMap.t -> (int * int)
       ExcessMap.t -> int VertexMap.t -> VertexSet.t -> int -> ((coq_R
       EdgeMap.t * coq_R ExcessMap.t) * int VertexMap.t) option **)
 
@@ -848,10 +848,10 @@ module PR =
        g)
 
   (** val initial_push_step :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      (int * int))) * T__23.coq_V) * T__23.coq_V) -> ((coq_R
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      (int * int))) * T__8.coq_V) * T__8.coq_V) -> ((coq_R
       EdgeMap.t * (int * int) ExcessMap.t) * VertexSet.t) ->
-      (T__23.coq_V * T__23.coq_V) -> (coq_R EdgeMap.t * (int * int)
+      (T__8.coq_V * T__8.coq_V) -> (coq_R EdgeMap.t * (int * int)
       ExcessMap.t) * VertexSet.t **)
 
   let initial_push_step fn pat pat0 =
@@ -872,8 +872,8 @@ module PR =
     ((f', e'), ac')
 
   (** val initial_push :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      (int * int))) * T__23.coq_V) * T__23.coq_V) -> (coq_R EdgeMap.t * coq_R
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      (int * int))) * T__8.coq_V) * T__8.coq_V) -> (coq_R EdgeMap.t * coq_R
       ExcessMap.t) * VertexSet.t **)
 
   let initial_push fn = match fn with
@@ -883,7 +883,7 @@ module PR =
     let (_, es) = y1 in
     let es' =
       EdgeSet.to_list
-        (EdgeSet.filter (fun pat -> let (u, _) = pat in T__23.eqb s u) es)
+        (EdgeSet.filter (fun pat -> let (u, _) = pat in T__8.eqb s u) es)
     in
     let start_st = (((EdgeMap.empty (0, 1)), (ExcessMap.empty (0, 1))),
       VertexSet.empty)
@@ -905,19 +905,26 @@ module PR =
     let (p1, active) = initial_push fn in
     let (f, e) = p1 in gpr_helper fn f e labels active bound
 
+  (** val excess_loop :
+      (int * int) EdgeMap.t -> T__8.coq_V -> T__8.coq_V list -> (int * int) **)
+
+  let excess_loop f u xs =
+    qminus (coq_QSumList (map (fun v -> EdgeMap.find (0, 1) f (v, u)) xs))
+      (coq_QSumList (map (fun v -> EdgeMap.find (0, 1) f (u, v)) xs))
+
   type coq_Tr =
   | Init of coq_R EdgeMap.t * coq_R ExcessMap.t * int VertexMap.t
      * VertexSet.t
-  | Push of T__23.coq_V * T__23.coq_V * coq_R EdgeMap.t * coq_R ExcessMap.t
+  | Push of T__8.coq_V * T__8.coq_V * coq_R EdgeMap.t * coq_R ExcessMap.t
      * VertexSet.t
-  | Relabel of T__23.coq_V * int * int VertexMap.t
+  | Relabel of T__8.coq_V * int * int VertexMap.t
   | OutOfGas
   | RelabelFailed
 
   (** val coq_Tr_rect :
       (coq_R EdgeMap.t -> coq_R ExcessMap.t -> int VertexMap.t -> VertexSet.t
-      -> 'a1) -> (T__23.coq_V -> T__23.coq_V -> coq_R EdgeMap.t -> coq_R
-      ExcessMap.t -> VertexSet.t -> 'a1) -> (T__23.coq_V -> int -> int
+      -> 'a1) -> (T__8.coq_V -> T__8.coq_V -> coq_R EdgeMap.t -> coq_R
+      ExcessMap.t -> VertexSet.t -> 'a1) -> (T__8.coq_V -> int -> int
       VertexMap.t -> 'a1) -> 'a1 -> 'a1 -> coq_Tr -> 'a1 **)
 
   let coq_Tr_rect f f0 f1 f2 f3 = function
@@ -929,8 +936,8 @@ module PR =
 
   (** val coq_Tr_rec :
       (coq_R EdgeMap.t -> coq_R ExcessMap.t -> int VertexMap.t -> VertexSet.t
-      -> 'a1) -> (T__23.coq_V -> T__23.coq_V -> coq_R EdgeMap.t -> coq_R
-      ExcessMap.t -> VertexSet.t -> 'a1) -> (T__23.coq_V -> int -> int
+      -> 'a1) -> (T__8.coq_V -> T__8.coq_V -> coq_R EdgeMap.t -> coq_R
+      ExcessMap.t -> VertexSet.t -> 'a1) -> (T__8.coq_V -> int -> int
       VertexMap.t -> 'a1) -> 'a1 -> 'a1 -> coq_Tr -> 'a1 **)
 
   let coq_Tr_rec f f0 f1 f2 f3 = function
@@ -941,8 +948,8 @@ module PR =
   | RelabelFailed -> f3
 
   (** val gpr_helper_trace :
-      ((((VertexSet.t * EdgeSet.t) * (T__23.coq_V -> T__23.coq_V ->
-      coq_R)) * T__23.coq_V) * T__23.coq_V) -> coq_R EdgeMap.t -> (int * int)
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      coq_R)) * T__8.coq_V) * T__8.coq_V) -> coq_R EdgeMap.t -> (int * int)
       ExcessMap.t -> int VertexMap.t -> VertexSet.t -> int -> coq_Tr list ->
       ((coq_R EdgeMap.t * coq_R ExcessMap.t) * int VertexMap.t)
       option * coq_Tr list **)
@@ -962,7 +969,9 @@ module PR =
           | Some v ->
             let (f', e') = push fn f e u v in
             let ac'0 =
-              if coq_QLt (0, 1) (ExcessMap.find (0, 1) e' u) then ac else ac'
+              if coq_QLt (0, 1) (ExcessMap.find (qred (0, 1)) e' u)
+              then ac
+              else ac'
             in
             if has_excess_not_sink fn e' v
             then let ac'' = VertexSet.add v ac'0 in
@@ -996,13 +1005,6 @@ module PR =
     let (f, e) = p1 in
     gpr_helper_trace fn f e labels active bound ((Init (f, e, labels,
       active)) :: [])
-
-  (** val excess_loop :
-      (int * int) EdgeMap.t -> T__23.coq_V -> T__23.coq_V list -> (int * int) **)
-
-  let excess_loop f u xs =
-    qminus (coq_QSumList (map (fun v -> EdgeMap.find (0, 1) f (v, u)) xs))
-      (coq_QSumList (map (fun v -> EdgeMap.find (0, 1) f (u, v)) xs))
  end
 
 module Edge = Tuple(Coq_Nat)(Coq_Nat)

@@ -845,95 +845,6 @@ Module PR
         let '(f, e, active) := initial_push fn in
         gpr_helper fn f e labels active bound.
 
-    (* Algoritmi sammud. Vajalik vaid funktsioonides, mis tagastavad järjendi list Tr. *)
-    Inductive Tr : Type :=
-        | Init: @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> @VertexMap.t nat O -> VertexSet.t ->  Tr
-        | Push: V -> V -> @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> VertexSet.t ->  Tr
-        | Relabel : V -> nat -> @VertexMap.t nat O ->  Tr
-        | OutOfGas
-        | RelabelFailed
-        .
-
-    (* Sama funktsioon kui gpr_helper, aga tagastab ka listi tehtud operatsioonidest
-    algoritmi töö kontrolliks. *)
-    Fixpoint gpr_helper_trace fn f e l ac g tr: (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
-        let '((vs, es),c,s,t) := fn in
-        match g with
-        | O => (None, OutOfGas::tr)
-        | S g' => 
-            match VertexSet.choice ac with
-            | None => (Some (f,e,l),tr)
-            | Some (u,ac') =>
-            match find_push_node fn f l u vs with
-            | Some v =>
-                let (f',e') := push fn f e u v in
-                let ac' := if 0 <? (e'[u]e) then ac else ac' in
-                if has_excess_not_sink fn e' v then 
-                    let ac'' := VertexSet.add v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
-                else 
-                    let ac'' := VertexSet.remove v ac' in
-                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
-            | None =>
-                match relabel fn f l u with
-                | None => (None, RelabelFailed::tr)
-                | Some l' =>
-                    gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
-                end
-            end
-            end 
-        end.
-    Lemma gpr_helper_trace_fn fn f e l ac g tr : 
-        gpr_helper_trace fn f e l ac g tr =
-            let '((vs, es),c,s,t) := fn in
-            match g with
-            | O => (None, OutOfGas::tr)
-            | S g' => 
-                match VertexSet.choice ac with
-                | None => (Some (f,e,l),tr)
-                | Some (u,ac') =>
-                match find_push_node fn f l u vs with
-                | Some v =>
-                    let (f',e') := push fn f e u v in
-                    let ac' := if 0 <? (e'[u]e) then ac else ac' in
-                    if has_excess_not_sink fn e' v then 
-                        let ac'' := VertexSet.add v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
-                    else 
-                        let ac'' := VertexSet.remove v ac' in
-                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
-                | None =>
-                    match relabel fn f l u with
-                    | None => (None, RelabelFailed::tr)
-                    | Some l' =>
-                        gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
-                    end
-                end
-                end 
-            end.
-    Proof. destruct g; auto. Qed. 
-
-    (* Sama funktsioon kui gpr, aga tagastab lisaks ka järjendi tehtud operatsioonidest. *)
-    (* Annab ülevaate täpsest algoritmi tööst. *)
-    Definition gpr_trace (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
-        let '((vs, es),c,s,t) := fn in
-        let vs_size := VertexSet.size vs in
-        let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
-        let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
-        let '(f, e, active) := initial_push fn in
-        gpr_helper_trace fn f e labels active bound (Init f e labels active :: nil).
-
-    (* Nii gpr kui gpr_trace tagastavad samad vood, ülejäägid ja kõrgused. *)
-    Lemma gpr_trace_eq_gpr: forall fn,
-    match gpr fn, gpr_trace fn with
-    | None, (None,_) => True
-    | Some (f,e,l), (None,_) => False 
-    | None, (Some (f',e',l'), _) => False
-    | Some (f,e,l), (Some (f',e',l'), _) =>
-        EdgeMap.eq_rat f f' /\ ExcessMap.eq_rat e e' /\ VertexMap.eq_nat l l'
-    end.
-    Proof. Admitted.
-
     (* Iga kaare voog ei ole suurem selle läbilaskevõimest. *)
     Definition CapacityConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) := 
         let '((vs, es),c,s,t) := fn in
@@ -2850,6 +2761,110 @@ Module PR
          *  rewrite VertexMap.FindReplaceNeq, VertexMap.FindEmpty; auto. lia.
     Qed.
 
+
+    (* Algoritmi sammud. Vajalik vaid funktsioonides, mis tagastavad järjendi list Tr. *)
+    Inductive Tr : Type :=
+        | Init: @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> @VertexMap.t nat O -> VertexSet.t ->  Tr
+        | Push: V -> V -> @EdgeMap.t R 0 -> @ExcessMap.t R 0 -> VertexSet.t ->  Tr
+        | Relabel : V -> nat -> @VertexMap.t nat O ->  Tr
+        | OutOfGas
+        | RelabelFailed
+        .
+
+    (* Sama funktsioon kui gpr_helper, aga tagastab ka listi tehtud operatsioonidest
+    algoritmi töö kontrolliks. *)
+    Fixpoint gpr_helper_trace fn f e l ac g tr: (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
+        let '((vs, es),c,s,t) := fn in
+        match g with
+        | O => (None, OutOfGas::tr)
+        | S g' => 
+            match VertexSet.choice ac with
+            | None => (Some (f,e,l),tr)
+            | Some (u,ac') =>
+            match find_push_node fn f l u vs with
+            | Some v =>
+                let (f',e') := push fn f e u v in
+                let ac' := if 0 <? (ExcessMap.find (Qred 0) e' u) then ac else ac' in
+                if has_excess_not_sink fn e' v then 
+                    let ac'' := VertexSet.add v ac' in
+                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
+                else 
+                    let ac'' := VertexSet.remove v ac' in
+                    gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
+            | None =>
+                match relabel fn f l u with
+                | None => (None, RelabelFailed::tr)
+                | Some l' =>
+                    gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
+                end
+            end
+            end 
+        end.
+    Lemma gpr_helper_trace_fn fn f e l ac g tr : 
+        gpr_helper_trace fn f e l ac g tr =
+            let '((vs, es),c,s,t) := fn in
+            match g with
+            | O => (None, OutOfGas::tr)
+            | S g' => 
+                match VertexSet.choice ac with
+                | None => (Some (f,e,l),tr)
+                | Some (u,ac') =>
+                match find_push_node fn f l u vs with
+                | Some v =>
+                    let (f',e') := push fn f e u v in
+                    let ac' := if 0 <? (ExcessMap.find (Qred 0) e' u) then ac else ac' in
+                    if has_excess_not_sink fn e' v then 
+                        let ac'' := VertexSet.add v ac' in
+                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac''::tr)
+                    else 
+                        let ac'' := VertexSet.remove v ac' in
+                        gpr_helper_trace fn f' e' l ac'' g' (Push u v f' e' ac'::tr)
+                | None =>
+                    match relabel fn f l u with
+                    | None => (None, RelabelFailed::tr)
+                    | Some l' =>
+                        gpr_helper_trace fn f e l' ac g' (Relabel u (l'[u]l)%nat l'::tr)
+                    end
+                end
+                end 
+            end.
+    Proof. destruct g; auto. Qed. 
+
+    (* Sama funktsioon kui gpr, aga tagastab lisaks ka järjendi tehtud operatsioonidest. *)
+    (* Annab ülevaate täpsest algoritmi tööst. *)
+    Definition gpr_trace (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)*list Tr) :=
+        let '((vs, es),c,s,t) := fn in
+        let vs_size := VertexSet.size vs in
+        let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
+        let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
+        let '(f, e, active) := initial_push fn in
+        gpr_helper_trace fn f e labels active bound (Init f e labels active :: nil).
+
+    (* gpr_helper ja gpr_helper_trace on samaväärsed. *)
+    Lemma gpr_helper_trace_eq_gpr_helper: forall g fn f e l ac tr,
+    gpr_helper fn f e l ac g = fst (gpr_helper_trace fn f e l ac g tr).
+    Proof. 
+        induction g; intros fn f e l ac tr; destruct fn as [[[[vs es] c] s] t].
+        + reflexivity.
+        + rewrite gpr_helper_fn. rewrite gpr_helper_trace_fn.
+        destruct (VertexSet.choice ac) as [[u ac']|].
+        - destruct (find_push_node _ _ _ _ _).
+        * destruct (push _ _ _ _ _) as [f' e'].
+        destruct (0 <? (ExcessMap.find (Qred 0) e' u)) eqn:E;
+        destruct (has_excess_not_sink _ _ _) eqn:E1; auto.
+        * destruct (relabel _ _ _ _) eqn:E; auto.
+        - auto.
+    Qed.
+
+    (* Nii gpr kui gpr_trace tagastavad samad vood, ülejäägid ja kõrgused. *)
+    Lemma gpr_trace_eq_gpr: forall fn,
+    gpr fn = fst (gpr_trace fn).
+    Proof. 
+        intros. unfold gpr_trace. destruct fn as [[[[vs es] c] s] t]. 
+        unfold gpr. destruct (initial_push _) as [[f e] active].
+        rewrite <- gpr_helper_trace_eq_gpr_helper. reflexivity.
+    Qed.
+                    
 End PR.
 
 Import ListNotations.
@@ -3043,3 +3058,4 @@ Extract Constant EdgeSet.find_first => "EdgeSet'.find_first_opt".
 Extract Constant EdgeSet.size => "EdgeSet'.cardinal".
 
 Recursive Extraction PRNat.gpr.
+
