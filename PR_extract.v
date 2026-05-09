@@ -97,8 +97,6 @@ Module Type MapSpec (T:T).
     Import T.
     (* Arvutamine *)
     Parameter t: forall (e:Type) {d:e}, Type.
-    Parameter eq_nat: @t nat O -> @t nat O -> Prop.
-    Parameter eq_rat: @t Q 0 -> @t Q 0 -> Prop.
     Parameter empty: forall {e:Type} (d:e), @t e d.
     Parameter replace: forall {e:Type} {d:e}, V -> e -> @t e d -> @t e d.
     Parameter find: forall {e:Type} (d:e), @t e d -> V -> e.
@@ -123,30 +121,6 @@ End MapSpec.
 Module MkMap (T:T) <: MapSpec (T).
     Import T.
     Definition t (e:Type) {d:e} := list (V * e).
-    
-    Fixpoint eq_nat (map1: @t Datatypes.nat O) (map2: @t Datatypes.nat O) := 
-        match map1, map2 with
-        | nil, nil => True
-        | nil, (_::map2') => False
-        | (_::map1'), nil => False
-        | ((k1,v1)::map1'), ((k2,v2)::map2') => 
-            if (T.eqb k1 k2) && (v1 =? v2) then
-                    eq_nat map1' map2'
-            else
-                False
-        end.
-
-    Fixpoint eq_rat (map1: @t Q 0) (map2: @t Q 0) := 
-        match map1, map2 with
-        | nil, nil => True
-        | nil, (_::map2') => False
-        | (_::map1'), nil => False
-        | ((k1,v1)::map1'), ((k2,v2)::map2') => 
-            if (T.eqb k1 k2) && (Qeq_bool v1 v2) then
-                    eq_rat map1' map2'
-            else
-                False
-        end.
 
     Definition empty {e:Type} d: @t e d:= nil.
 
@@ -646,19 +620,18 @@ Module PR
     
     (* Arvutab transpordivõrgu fn, millel on eelvoog f, tipu x ülejäägi,
     lahutades väljaminevast voost maha sissetuleva voo. *)
-    Definition excess (fn:FlowNet) (f: EdgeMap.t R) : V -> R :=
+    Definition excess (fn:FlowNet) f u :=
         let '((vs, es),c,s,t) := fn in
-        fun u => 
         Qred (
             QSumList (map (fun v => f[(v,u)]f) (VertexSet.to_list vs)) -
             QSumList (map (fun v => f[(u,v)]f) (VertexSet.to_list vs))).
 
     (* Uuendab ülejääkide andmestruktuuri,
     vähendades tipu u ülejääki delta võrra ja suurendades tipu v ülejääki delta võrra *)
-    Definition excess_update e u delta : V -> ExcessMap.t R :=
-        fun v =>
-            let new_map_u := @ExcessMap.update R 0 u (fun x => Qred (x - delta)) e in
-            @ExcessMap.update R 0 v (fun x => Qred (x + delta)) new_map_u.
+    Definition excess_update e u delta v : ExcessMap.t R :=
+            let e' := 
+            @ExcessMap.update R 0 u (fun x => Qred (x - delta)) e in
+            ExcessMap.update v (fun x => Qred (x + delta)) e'.
 
     (* Arvutab välja serva (u, v) alles oleva läbilaskevõime. 
     c u v tähistab serva läbilaskevõimet ja f[(u,v)]f serva voogu. 
@@ -832,18 +805,22 @@ Module PR
         let start_st := (EdgeMap.empty 0, ExcessMap.empty 0, VertexSet.empty) in
         fold_left (initial_push_step fn) es' start_st.
 
+
+Open Scope nat.
     (* Algväärtustab graafi, muutes tippude kõrgused nii, et tipp s on kõrgusega length vs 
     ja kõik teised tipud kõrgusega 0. 
     Seejärel teostab algse push-sammu tipust s väljuvate kaarte peal. 
     Lõpus kutsutakse välja gpr_helper, 
     mis leiab maksimaalse voo ja tagastab leitud väärtuse funktsioonile gpr.*)
-    Definition gpr (fn:FlowNet): (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
+    Definition gpr fn : (option (EdgeMap.t R * ExcessMap.t R * VertexMap.t nat)) :=
         let '((vs, es),c,s,t) := fn in
         let vs_size := VertexSet.size vs in
-        let labels := VertexMap.replace s vs_size (@VertexMap.empty nat O) in
-        let bound := (EdgeSet.size es * vs_size * vs_size)%nat in
+        let labels := VertexMap.replace s vs_size (VertexMap.empty O) in
+        let bound := (EdgeSet.size es * vs_size * vs_size) in
         let '(f, e, active) := initial_push fn in
         gpr_helper fn f e labels active bound.
+
+Close Scope nat.
 
     (* Iga kaare voog ei ole suurem selle läbilaskevõimest. *)
     Definition CapacityConstraint (fn:FlowNet) (f: @EdgeMap.t R 0) := 
@@ -2721,16 +2698,16 @@ Module PR
      gpr tagastab voo f', ülejäägid e' ja kõrgused l', siis järeldub, et aktiivsed tipud on ainult sisend või väljund,
      on täidetud voo nõuded ja on säilitatud invariandid, et sisendi kõrgus on võrdne tippude arvuga ja väljundi kõrgus on 0 *)
     Lemma FlowConservationGprMain fn:
+        forall f' e' l',
         let '((vs, es),c,s,t) := fn in
         (forall u v, ((u, v) ∈e es = true) -> (u ∈v vs) = true /\ (v ∈v vs) = true) ->
         True ->
         (forall u v, c u v >= 0) ->
         s<>t ->
-        forall f' e' l', 
         gpr fn = (Some (f',e',l')) ->
         (forall n, ActiveNode fn f' n -> n=t \/ n=s) /\ 
         FlowConservationConstraint fn f' e' /\
-        (VertexSet.size vs = l'[s]l)%nat /\ (O=l'[t]l)%nat.
+        (VertexSet.size vs = l'[s]l) /\ (O=l'[t]l).
     Proof.
         destruct fn as [[[[vs es] c] s] t]. 
         intros H H0 H1 Hst f' l' eM' H2. unfold gpr in H2.
@@ -2945,7 +2922,7 @@ Compute (@PRNat.excess FN2 [(0, 1, 10%Q); (0, 3, 4%Q); (3, 4, 7%Q); (
 Compute (@PRNat.excess FN3 [(0, 1, 4%Q); (0, 2, 2%Q); 
 (2, 4, 2%Q); (4, 5, 2%Q); (1, 3, 4%Q); (3, 5, 4%Q)] 5). *)
 
-Definition FN_excess :=
+Definition FN4 :=
   let c := fun (x y : nat) =>
     match x, y with
     | 0, 5 => 19%Q
@@ -2962,7 +2939,7 @@ Definition FN_excess :=
   in
   ((vset_list [0;1;2;3;4;5;6], eset_list [(0,5);(1,2);(1,4);(2,3);(3,4);(3,6);(4,2);(5,1);(5,2)]), c, 0, 6).
 
-Definition FN_rand_test :=
+Definition FN5 :=
   let c := fun (x y : nat) =>
     match x, y with
     | 0, 1 => 8%Q
@@ -2975,8 +2952,9 @@ Definition FN_rand_test :=
 
 (* Ekstraheerimine *)
 
-(* Lihtsamate andmetüüpide jaoks abiteegid *)
+(* Ekstraheerimise sihtkeele määramine *)
 Extraction Language OCaml.
+(* Lihtsamate andmetüüpide jaoks abiteegid *)
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlZInt.
 Require Import ExtrOcamlNatInt.

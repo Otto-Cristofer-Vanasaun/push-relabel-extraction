@@ -674,7 +674,8 @@ module PR =
   let coq_QSumList =
     fold_right qplus (0, 1)
 
-  (** val excess : coq_FlowNet -> coq_R EdgeMap.t -> T__8.coq_V -> coq_R **)
+  (** val excess :
+      coq_FlowNet -> (int * int) EdgeMap.t -> T__8.coq_V -> (int * int) **)
 
   let excess fn f u =
     let (p, _) = fn in
@@ -693,10 +694,8 @@ module PR =
       ExcessMap.t **)
 
   let excess_update e u delta v =
-    let new_map_u =
-      ExcessMap.update (0, 1) u (fun x -> qred (qminus x delta)) e
-    in
-    ExcessMap.update (0, 1) v (fun x -> qred (qplus x delta)) new_map_u
+    let e' = ExcessMap.update (0, 1) u (fun x -> qred (qminus x delta)) e in
+    ExcessMap.update (0, 1) v (fun x -> qred (qplus x delta)) e'
 
   (** val res_cap :
       coq_FlowNet -> coq_R EdgeMap.t -> T__8.coq_V -> T__8.coq_V -> coq_R **)
@@ -891,19 +890,20 @@ module PR =
     fold_left (initial_push_step fn) es' start_st
 
   (** val gpr :
-      coq_FlowNet -> ((coq_R EdgeMap.t * coq_R ExcessMap.t) * int
-      VertexMap.t) option **)
+      ((((VertexSet.t * EdgeSet.t) * (T__8.coq_V -> T__8.coq_V ->
+      (int * int))) * T__8.coq_V) * T__8.coq_V) -> ((coq_R EdgeMap.t * coq_R
+      ExcessMap.t) * int VertexMap.t) option **)
 
   let gpr fn = match fn with
-  | (p, _) ->
-    let (p0, s) = p in
-    let (g, _) = p0 in
-    let (vs, es) = g in
+  | (y, _) ->
+    let (y0, s) = y in
+    let (y1, _) = y0 in
+    let (vs, es) = y1 in
     let vs_size = VertexSet.size vs in
     let labels = VertexMap.replace 0 s vs_size (VertexMap.empty 0) in
     let bound = mul (mul (EdgeSet.size es) vs_size) vs_size in
-    let (p1, active) = initial_push fn in
-    let (f, e) = p1 in gpr_helper fn f e labels active bound
+    let (p, active) = initial_push fn in
+    let (f, e) = p in gpr_helper fn f e labels active bound
 
   (** val excess_loop :
       (int * int) EdgeMap.t -> T__8.coq_V -> T__8.coq_V list -> (int * int) **)
@@ -1013,10 +1013,6 @@ module EdgeMap =
  struct
   type 'e t = 'e EdgeMap'.t
 
-  type eq_nat = __
-
-  type eq_rat = __
-
   (** val empty : 'a1 -> 'a1 t **)
 
   let empty = fun _d -> EdgeMap'.create 1
@@ -1071,10 +1067,6 @@ module EdgeMap =
 module VertexMap =
  struct
   type 'e t = 'e VertexMap'.t
-
-  type eq_nat = __
-
-  type eq_rat = __
 
   (** val empty : 'a1 -> 'a1 t **)
 
@@ -1131,10 +1123,6 @@ module VertexMap =
 module ExcessMap =
  struct
   type 'e t = 'e ExcessMap'.t
-
-  type eq_nat = __
-
-  type eq_rat = __
 
   (** val empty : 'a1 -> 'a1 t **)
 
@@ -1411,7 +1399,6 @@ module VertexSet =
 
 module PRNat =
  PR(Coq_Nat)(Edge)(EdgeMap)(VertexMap)(ExcessMap)(EdgeSet)(VertexSet)
-
 
 (* Näidisvõrgud *)
 let fN1 =
@@ -1917,28 +1904,30 @@ let pp_vert_map key value fmt verticemap =
 let pp_triple fmt ((edgemap, excessmap), vertexmap) =
   fprintf fmt "%a\n%a\n%a" 
   (pp_edge_map pp_edge pp_Q) edgemap
-  (pp_vert_map pp_v pp_print_int) vertexmap
   (pp_excess_map pp_v pp_Q) excessmap
+  (pp_vert_map pp_v pp_print_int) vertexmap
 
 let pp_formatter fmt = function
 | x -> fprintf fmt "%a\n" (pp_print_option pp_triple) x
 
 (* Kaarte vood, tippude kõrgused ja ülejäägid algoritmi lõpus *)
-let () =
-  let gpr = PRNat.gpr fN2 in
+let info fn =
+  let gpr = PRNat.gpr fn in
   Format.printf "%a" (pp_formatter) gpr;
 
 Format.close_box ()
 
 (* PR ajakulu mõõtmine *)
-let time f x = 
+let time f fn = 
     let t = Sys.time() in
-    let fx = f x in
+    let fx = f fn in
     Printf.printf "Ajakulu: %fms\n" ((Sys.time() -. t) *. 1000.0);
   fx
-
-
   
+(* Peafunktsioon, mis võtab argumendiks transpordivõrgu ja tagastab
+kaarte vood, tippude kõrgused ja ülejäägid ning algoritmi tööaja *)
 let () =
-    let _ = time PRNat.gpr fN2 in
+    let fn = fN2 in
+    let _ = info fn in
+    let _ = time PRNat.gpr fn in
   ()
