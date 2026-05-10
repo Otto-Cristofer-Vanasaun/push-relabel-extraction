@@ -26,12 +26,11 @@
 
 #### Description of files
 * Rocq \
-`PR.v` includes all changes until `Q` to `(int * int)` (included). Outdated, will be changed or removed. \
-`PR_nat.v` is the up-to-date file. It also includes the code to extract `VMap` and `EMap` to OCaml `Map` objects (commented out). Also includes the code to extract `VSet` and `ESet` to OCaml `Set` (commented out), as well as definitions and lemmas to generalise `VSet` and `ESet` to use type `T` instead of `list V` (in `SetSpec` and `MkSet`, also commented out). Finally, the definition of `Graph` through `VSet.t` and `ESet.t` (commented out). 
+`PR_extract.v` is the main file. Includes the push-relabel algorithm and its extraction to OCaml along with example networks FN1, FN2, FN3, FN4 and FN5.
 * OCaml \
-The folder `push-relabel` is an OCaml project, in which is the `bin` folder. The `bin` folder includes the file `main.ml`, where the result of the extraction can be found. \
-At the beginning of the `main.ml` file (up until the "Extracted from the push-relabel..." comment) is a line to ignore some warnings as well as the manually written definitions for `NatH`, `EdgeH` and `Hashtbl` structures. The definitions for `EdgeT`, `VertexSet'` and `EdgeSet'` are unused. The code includes definitions to make the program use `Map` instead of `Hashtbl`, but is commented out. \
-At the end of the `main.ml` file are functions for displaying the answer and time after running the program, with additional flow networks in the comments. 
+The folder `push-relabel` is the OCaml project, in which is the `bin` folder. The `bin` folder includes the file `main.ml`, where the result of the extraction can be found. \
+At the beginning of the `main.ml` file (up until the "Extracted from the push-relabel..." comment) is a line to ignore some warnings as well as the manually written definitions for `NatH`, `EdgeH` and `EdgeT` structures. \
+At the end of the `main.ml` file are functions for displaying the time, and a pretty-printer that is used to output the flows of edges, excesses and labels of vertices. Also includes the extracted versions of the example networks fN1 through fN5.
 * Python (flow network generation) \
   The folder `gen_flow` includes some flow networks and the Python script for generating them.
 
